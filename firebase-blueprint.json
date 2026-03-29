@@ -1,0 +1,114 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user profile and subscription status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin", "parent"] },
+        "isPremium": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "streak": { "type": "number" },
+        "lastActiveDate": { "type": "string", "format": "date" },
+        "totalTimeSpent": { "type": "number", "description": "Total time in minutes" },
+        "parentEmail": { "type": "string", "format": "email" },
+        "childUid": { "type": "string", "description": "UID of the child for parent accounts" },
+        "weakTopics": { "type": "array", "items": { "type": "string" } },
+        "totalPoints": { "type": "number" },
+        "notificationFrequency": { "type": "string", "enum": ["none", "daily", "weekly", "monthly"] },
+        "alertOnMissingLogin": { "type": "boolean" },
+        "completedStudyTopics": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "LessonProgress": {
+      "title": "Lesson Progress",
+      "description": "Tracks user progress in a specific lesson",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "status": { "type": "string", "enum": ["not-started", "in-progress", "completed"] },
+        "score": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "lessonId", "status"]
+    },
+    "Lesson": {
+      "title": "Lesson Content",
+      "description": "Stores the rich text content of a lesson",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "content"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "A set of questions for a lesson",
+      "type": "object",
+      "properties": {
+        "lessonId": { "type": "string" },
+        "title": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "correctAnswer": { "type": "number" },
+              "explanation": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "PublicProfile": {
+      "title": "Public Profile",
+      "description": "Non-sensitive user data for leaderboard and public display",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "totalPoints": { "type": "number" },
+        "streak": { "type": "number" }
+      },
+      "required": ["uid", "displayName", "totalPoints"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/public_profiles/{userId}": {
+      "schema": "PublicProfile",
+      "description": "Public user profile data"
+    },
+    "/users/{userId}/progress/{lessonId}": {
+      "schema": "LessonProgress",
+      "description": "User progress per lesson"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Quiz content"
+    },
+    "/lessons/{lessonId}": {
+      "schema": "Lesson",
+      "description": "Lesson content and metadata"
+    },
+    "/settings/{settingId}": {
+      "schema": "object",
+      "description": "Global application settings"
+    }
+  }
+}

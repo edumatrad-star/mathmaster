@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - displayName: string (optional)
+    //   - email: string (required)
+    //   - photoURL: string (optional)
+    //   - role: string (required, 'user', 'admin', 'parent')
+    //   - isPremium: bool (required)
+    //   - createdAt: timestamp (required)
+    //   - notificationFrequency: string (optional, 'daily', 'weekly', 'monthly')
+    //   - alertOnMissingLogin: bool (optional)
+    //   - completedStudyTopics: list (optional, strings)
+    //
+    // Collection: users/{userId}/progress
+    // Document ID: {lessonId}
+    // Fields:
+    //   - userId: string (required)
+    //   - lessonId: string (required)
+    //   - status: string (required, 'not-started', 'in-progress', 'completed')
+    //   - score: number (optional)
+    //   - updatedAt: timestamp (required)
+    //
+    // Collection: lessons
+    // Document ID: {lessonId}
+    // Fields:
+    //   - id: string (required)
+    //   - title: string (required)
+    //   - content: string (required)
+    //   - updatedAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "edumatrad@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "admin@mathmaster.pl") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isParentOf(childId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent' &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.childUid == childId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'isPremium']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.role in ['user', 'admin', 'parent'] &&
+             data.isPremium is bool &&
+             (!('notificationFrequency' in data) || data.notificationFrequency in ['none', 'daily', 'weekly', 'monthly']) &&
+             (!('alertOnMissingLogin' in data) || data.alertOnMissingLogin is bool) &&
+             (!('completedStudyTopics' in data) || data.completedStudyTopics is list);
+    }
+
+    function isValidProgress(data) {
+      return data.keys().hasAll(['userId', 'lessonId', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.status in ['not-started', 'in-progress', 'completed'];
+    }
+
+    function isValidLesson(data) {
+      return data.keys().hasAll(['id', 'title', 'content']) &&
+             data.id is string &&
+             data.title is string &&
+             data.content is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own profile, parents can read child's profile, admins can read all
+      allow get: if isOwner(userId) || isParentOf(userId) || isAdmin();
+      
+      // Strictly NO listing of users collection to prevent PII leak (emails)
+      allow list: if isAdmin();
+      
+      // Users can create their own profile with 'user' or 'parent' role
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role in ['user', 'parent'] || isAdmin());
+      
+      // Users can update their own profile but cannot change their role or premium status unless they are admin
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.role == resource.data.role && request.resource.data.isPremium == resource.data.isPremium || isAdmin());
+      
+      match /progress/{lessonId} {
+        allow read: if isOwner(userId) || isParentOf(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidProgress(request.resource.data);
+      }
+    }
+
+    match /public_profiles/{userId} {
+      // Public profiles are readable by any authenticated user for leaderboard
+      allow read: if isAuthenticated();
+      
+      // Only the owner or admin can write to their public profile
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    match /quizzes/{quizId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidLesson(request.resource.data);
+    }
+
+    match /questions/{questionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
