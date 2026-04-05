@@ -66,12 +66,12 @@ export default function Navbar() {
           <div className="flex items-center space-x-4">
             {user ? (
               <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2 px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100">
+                <Link to="/profile" className="flex items-center space-x-2 px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100 hover:bg-indigo-100 transition-all">
                   <div className="w-6 h-6 rounded-full overflow-hidden">
                     <img src={user.photoURL || ''} alt="" referrerPolicy="no-referrer" />
                   </div>
                   <span className="text-xs font-bold text-indigo-700">{profile?.isPremium ? 'PREMIUM' : 'FREE'}</span>
-                </div>
+                </Link>
                 <button 
                   onClick={handleLogout}
                   className="flex items-center space-x-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
@@ -85,7 +85,7 @@ export default function Navbar() {
                 <Link to="/login" className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors">
                   Zaloguj się
                 </Link>
-                <Link to="/login" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
+                <Link to="/register" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
                   Zacznij naukę
                 </Link>
               </div>

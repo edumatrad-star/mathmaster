@@ -5,6 +5,7 @@ export interface Question {
   correctAnswer: number;
   explanation: string;
   difficulty?: 'easy' | 'medium' | 'hard';
+  createdAt?: string;
 }
 
 export const revisionQuestions: Record<number, Question[]> = {

@@ -1,17 +1,38 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { User, Clock, Flame, Target, AlertCircle, TrendingUp, BookOpen, Calendar, Mail, Bell, FileText, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { User, Clock, Flame, Target, AlertCircle, TrendingUp, BookOpen, Calendar, Mail, Bell, FileText, Download, UserPlus, Check, X, Loader2, ChevronRight, Plus, Settings as SettingsIcon, Lock, Trophy, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { db, doc, getDoc, updateDoc, collection, query, where, getDocs } from '../firebase';
+import { auth, db, doc, getDoc, updateDoc, collection, query, where, getDocs } from '../firebase';
 import MathChart from '../components/MathChart';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
 export default function ParentDashboard() {
-  const { user, profile } = useAuth();
-  const [childData, setChildData] = useState<any>(null);
+  const { user, profile, addChild, checkUsernameAvailability } = useAuth();
+  const [childrenData, setChildrenData] = useState<any[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [showAddChildModal, setShowAddChildModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'progress' | 'manage' | 'notifications'>('progress');
+
+  const [newChildName, setNewChildName] = useState('');
+  const [newChildUsername, setNewChildUsername] = useState('');
+  const [newChildEmail, setNewChildEmail] = useState('');
+  const [newChildPassword, setNewChildPassword] = useState('');
+  const [isAddingChild, setIsAddingChild] = useState(false);
+  const [addChildError, setAddChildError] = useState('');
+  const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
+  const [checkingUsername, setCheckingUsername] = useState(false);
+
+  const [childNewPassword, setChildNewPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const [notifications, setNotifications] = useState<any[]>([
+    { id: 1, type: 'progress', message: 'Adam ukończył lekcję "Ułamki"', date: '2024-03-20T10:00:00Z' },
+    { id: 2, type: 'alert', message: 'Adam nie logował się od 2 dni', date: '2024-03-19T08:30:00Z' },
+    { id: 3, type: 'achievement', message: 'Adam zdobył odznakę "Mistrz Algebry"', date: '2024-03-18T15:45:00Z' },
+  ]);
 
   const [notificationSettings, setNotificationSettings] = useState({
     frequency: profile?.notificationFrequency || 'none',
@@ -19,17 +40,66 @@ export default function ParentDashboard() {
   });
 
   useEffect(() => {
-    async function fetchChildData() {
-      if (profile?.role === 'parent' && profile?.childUid) {
-        const childDoc = await getDoc(doc(db, 'users', profile.childUid));
-        if (childDoc.exists()) {
-          setChildData(childDoc.data());
+    const checkUsername = async () => {
+      if (newChildUsername.length >= 3) {
+        setCheckingUsername(true);
+        try {
+          const available = await checkUsernameAvailability(newChildUsername);
+          setIsUsernameAvailable(available);
+        } catch (error) {
+          console.error("Error checking username:", error);
+        } finally {
+          setCheckingUsername(false);
+        }
+      } else {
+        setIsUsernameAvailable(null);
+      }
+    };
+
+    const timeoutId = setTimeout(checkUsername, 500);
+    return () => clearTimeout(timeoutId);
+  }, [newChildUsername, checkUsernameAvailability]);
+
+  useEffect(() => {
+    async function fetchChildrenData() {
+      if (profile?.role === 'parent' && profile?.childrenUids?.length > 0) {
+        const data = [];
+        for (const uid of profile.childrenUids) {
+          const childDoc = await getDoc(doc(db, 'users', uid));
+          if (childDoc.exists()) {
+            data.push(childDoc.data());
+          }
+        }
+        setChildrenData(data);
+        if (data.length > 0 && !selectedChildId) {
+          setSelectedChildId(data[0].uid);
         }
       }
       setLoading(false);
     }
-    fetchChildData();
-  }, [profile]);
+    fetchChildrenData();
+  }, [profile, selectedChildId]);
+
+  const selectedChild = childrenData.find(c => c.uid === selectedChildId);
+
+  const handleAddChild = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddChildError('');
+    setIsAddingChild(true);
+    try {
+      await addChild(newChildName, newChildUsername, newChildEmail, newChildPassword);
+      setShowAddChildModal(false);
+      setNewChildName('');
+      setNewChildUsername('');
+      setNewChildEmail('');
+      setNewChildPassword('');
+      // Profile update will trigger useEffect to fetch new child
+    } catch (err: any) {
+      setAddChildError(err.message || 'Wystąpił błąd podczas dodawania konta ucznia.');
+    } finally {
+      setIsAddingChild(false);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!user) return;
@@ -47,13 +117,52 @@ export default function ParentDashboard() {
     setSavingSettings(false);
   };
 
+  const handleChangeChildPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedChildId || !childNewPassword) return;
+    
+    if (childNewPassword.length < 6) {
+      alert('Hasło musi mieć co najmniej 6 znaków.');
+      return;
+    }
+    
+    setIsChangingPassword(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/parent/change-child-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          childUid: selectedChildId,
+          newPassword: childNewPassword
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert('Hasło zostało zmienione pomyślnie!');
+        setChildNewPassword('');
+      } else {
+        if (data.error && data.error.includes('There is no user record')) {
+          throw new Error('Konto ucznia nie istnieje w systemie logowania. Zmiana hasła nie powiodła się.');
+        }
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      alert(`Błąd: ${error.message}`);
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   const [sendingEmail, setSendingEmail] = useState(false);
 
   const generatePDF = () => {
-    if (!childData) return;
+    if (!selectedChild) return;
     const doc = new jsPDF();
     
-    // Helper to fix Polish characters for standard PDF fonts (which don't support them)
     const fixPolish = (str: string) => {
       const mapping: {[key: string]: string} = {
         'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
@@ -63,19 +172,19 @@ export default function ParentDashboard() {
     };
 
     doc.setFontSize(22);
-    doc.setTextColor(79, 70, 229); // Indigo-600
+    doc.setTextColor(79, 70, 229);
     doc.text(fixPolish('Raport Postepow Ucznia - MathMaster'), 20, 20);
     
     doc.setFontSize(12);
-    doc.setTextColor(100, 116, 139); // Slate-500
+    doc.setTextColor(100, 116, 139);
     doc.text(fixPolish(`Wygenerowano dla rodzica: ${profile?.email}`), 20, 30);
     
-    doc.setDrawColor(226, 232, 240); // Slate-200
+    doc.setDrawColor(226, 232, 240);
     doc.line(20, 35, 190, 35);
 
     doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42); // Slate-900
-    doc.text(fixPolish(`Uczen: ${childData.displayName}`), 20, 45);
+    doc.setTextColor(15, 23, 42);
+    doc.text(fixPolish(`Uczen: ${selectedChild.displayName}`), 20, 45);
     doc.text(fixPolish(`Data raportu: ${new Date().toLocaleDateString('pl-PL')}`), 20, 55);
     
     doc.setFontSize(16);
@@ -83,10 +192,10 @@ export default function ParentDashboard() {
     
     const stats = [
       [fixPolish('Kategoria'), fixPolish('Wartosc')],
-      [fixPolish('Streak (Dni z rzedu)'), `${childData.streak || 0} dni`],
-      [fixPolish('Laczny czas nauki'), `${childData.totalTimeSpent || 0} min`],
-      [fixPolish('Zdobyte punkty'), `${childData.totalPoints || 0}`],
-      [fixPolish('Ukonczone tematy'), `${childData.completedStudyTopics?.length || 0}`]
+      [fixPolish('Streak (Dni z rzedu)'), `${selectedChild.streak || 0} dni`],
+      [fixPolish('Laczny czas nauki'), `${selectedChild.totalTimeSpent || 0} min`],
+      [fixPolish('Zdobyte punkty'), `${selectedChild.totalPoints || 0}`],
+      [fixPolish('Ukonczone tematy'), `${selectedChild.completedStudyTopics?.length || 0}`]
     ];
 
     (doc as any).autoTable({
@@ -103,7 +212,7 @@ export default function ParentDashboard() {
     doc.setFontSize(16);
     doc.text(fixPolish('Ostatnio ukonczone tematy:'), 20, lastY + 20);
     
-    const completedTopics = (childData.completedStudyTopics || []).slice(-5).map((t: string) => [fixPolish(t)]);
+    const completedTopics = (selectedChild.completedStudyTopics || []).slice(-5).map((t: string) => [fixPolish(t)]);
     
     if (completedTopics.length > 0) {
       (doc as any).autoTable({
@@ -122,20 +231,20 @@ export default function ParentDashboard() {
     doc.setFontSize(16);
     doc.text(fixPolish('Tematy wymagajace powtorki:'), 20, nextY + 20);
     
-    const weakTopics = (childData.weakTopics || ['Ulamki dziesietne', 'Pola figur plaskich']).map((t: string) => [fixPolish(t)]);
+    const weakTopics = (selectedChild.weakTopics || ['Ulamki dziesietne', 'Pola figur plaskich']).map((t: string) => [fixPolish(t)]);
     
     (doc as any).autoTable({
       startY: nextY + 25,
       body: weakTopics,
       theme: 'plain',
-      styles: { textColor: [220, 38, 38] } // Red-600
+      styles: { textColor: [220, 38, 38] }
     });
 
-    doc.save(`Raport_MathMaster_${childData.displayName}.pdf`);
+    doc.save(`Raport_MathMaster_${selectedChild.displayName}.pdf`);
   };
 
   const handleSendEmailReport = async () => {
-    if (!childData || !profile?.email) return;
+    if (!selectedChild || !profile?.email) return;
     setSendingEmail(true);
     try {
       const response = await fetch('/api/notifications/send-report', {
@@ -143,11 +252,11 @@ export default function ParentDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           parentEmail: profile.email,
-          childName: childData.displayName,
+          childName: selectedChild.displayName,
           stats: {
-            streak: childData.streak,
-            points: childData.totalPoints,
-            completedCount: childData.completedStudyTopics?.length || 0
+            streak: selectedChild.streak,
+            points: selectedChild.totalPoints,
+            completedCount: selectedChild.completedStudyTopics?.length || 0
           }
         })
       });
@@ -164,46 +273,7 @@ export default function ParentDashboard() {
     setSendingEmail(false);
   };
 
-  const [childEmail, setChildEmail] = useState('');
-  const [linkingChild, setLinkingChild] = useState(false);
-
-  const handleLinkChild = async () => {
-    if (!user || !childEmail) return;
-    setLinkingChild(true);
-    try {
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', childEmail.toLowerCase()));
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        alert('Nie znaleziono użytkownika o podanym adresie email.');
-        setLinkingChild(false);
-        return;
-      }
-
-      const childDoc = querySnapshot.docs[0];
-      const childUid = childDoc.id;
-
-      if (childUid === user.uid) {
-        alert('Nie możesz powiązać własnego konta jako konta dziecka.');
-        setLinkingChild(false);
-        return;
-      }
-
-      await updateDoc(doc(db, 'users', user.uid), {
-        childUid: childUid
-      });
-
-      setChildData(childDoc.data());
-      alert('Konto dziecka zostało pomyślnie powiązane!');
-    } catch (error) {
-      console.error('Error linking child:', error);
-      alert('Wystąpił błąd podczas powiązywania konta.');
-    }
-    setLinkingChild(false);
-  };
-
-  if (loading) return <div className="pt-32 text-center">Ładowanie danych dziecka...</div>;
+  if (loading) return <div className="pt-32 text-center">Ładowanie danych...</div>;
 
   if (profile?.role !== 'parent') {
     return (
@@ -215,212 +285,456 @@ export default function ParentDashboard() {
     );
   }
 
-  if (!childData) {
-    return (
-      <div className="pt-32 text-center px-4">
-        <h2 className="text-2xl font-bold">Połącz konto dziecka</h2>
-        <p className="text-slate-500 mt-2 mb-8">Nie masz jeszcze połączonego konta swojego dziecka.</p>
-        <div className="max-w-md mx-auto bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <input 
-            type="email" 
-            placeholder="Email dziecka" 
-            value={childEmail}
-            onChange={(e) => setChildEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
-          />
-          <button 
-            onClick={handleLinkChild}
-            disabled={linkingChild || !childEmail}
-            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
-          >
-            {linkingChild ? 'Łączenie...' : 'Powiąż konto dziecka'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="pt-24 pb-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       <header className="mb-12 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Panel Rodzica: {childData.displayName}</h1>
-          <p className="text-slate-500 mt-2">Monitoruj postępy i wspieraj naukę swojego dziecka.</p>
+          <h1 className="text-3xl font-bold text-slate-900">Panel Rodzica</h1>
+          <p className="text-slate-500 mt-2">Monitoruj postępy i wspieraj naukę swoich dzieci.</p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <button 
-            onClick={handleSendEmailReport}
-            disabled={sendingEmail}
-            className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200 disabled:opacity-50"
-          >
-            <Mail size={20} />
-            {sendingEmail ? 'Wysyłanie...' : 'Wyślij raport na email'}
-          </button>
-          <button 
-            onClick={generatePDF}
+            onClick={() => setShowAddChildModal(true)}
             className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
           >
-            <Download size={20} />
-            Pobierz raport PDF
+            <UserPlus size={20} />
+            Dodaj konto ucznia
           </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center text-orange-600">
-              <Flame size={20} />
+      {/* Children Selector */}
+      <div className="flex flex-wrap gap-4 mb-12">
+        {childrenData.map(child => (
+          <button
+            key={child.uid}
+            onClick={() => setSelectedChildId(child.uid)}
+            className={`flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all ${
+              selectedChildId === child.uid
+                ? 'bg-white border-indigo-600 shadow-md ring-2 ring-indigo-50'
+                : 'bg-slate-50 border-slate-200 hover:border-indigo-300'
+            }`}
+          >
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              selectedChildId === child.uid ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
+            }`}>
+              <User size={20} />
             </div>
-            <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Streak</span>
-          </div>
-          <div className="text-3xl font-bold text-slate-900">{childData.streak || 0} dni</div>
-          <div className="text-xs text-green-500 mt-1 font-medium">Aktywny dzisiaj!</div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
-              <Clock size={20} />
+            <div className="text-left">
+              <div className={`font-bold ${selectedChildId === child.uid ? 'text-indigo-600' : 'text-slate-700'}`}>
+                {child.displayName}
+              </div>
+              <div className="text-xs text-slate-400">@{child.username}</div>
             </div>
-            <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Czas nauki</span>
+          </button>
+        ))}
+        {childrenData.length === 0 && (
+          <div className="p-8 bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl w-full text-center">
+            <p className="text-slate-500">Nie masz jeszcze dodanych kont uczniów.</p>
+            <button 
+              onClick={() => setShowAddChildModal(true)}
+              className="mt-4 text-indigo-600 font-bold hover:underline"
+            >
+              Dodaj pierwsze dziecko
+            </button>
           </div>
-          <div className="text-3xl font-bold text-slate-900">{childData.totalTimeSpent || 0} min</div>
-          <div className="text-xs text-slate-400 mt-1 font-medium">W tym tygodniu</div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-600">
-              <Target size={20} />
-            </div>
-            <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Punkty</span>
-          </div>
-          <div className="text-3xl font-bold text-slate-900">{childData.totalPoints || 0}</div>
-          <div className="text-xs text-slate-400 mt-1 font-medium">Łącznie zdobyte</div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
-              <TrendingUp size={20} />
-            </div>
-            <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Ranking</span>
-          </div>
-          <div className="text-3xl font-bold text-slate-900">#12</div>
-          <div className="text-xs text-indigo-500 mt-1 font-medium">Top 5% uczniów</div>
-        </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recommendations */}
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <AlertCircle className="text-indigo-600" size={24} />
-            Nad czym popracować?
-          </h3>
-          <div className="space-y-4">
-            {(childData.weakTopics || ['Ułamki dziesiętne', 'Pola figur płaskich']).map((topic: string, i: number) => (
-              <div key={i} className="flex items-start gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-indigo-600 shadow-sm shrink-0">
-                  <BookOpen size={16} />
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900">{topic}</div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Uczeń miał trudności z ostatnim testem z tego działu. Zalecana powtórka lekcji 4 i 5.
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Activity Calendar Mock */}
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <Calendar className="text-indigo-600" size={24} />
-            Aktywność w ostatnim miesiącu
-          </h3>
-          <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 31 }).map((_, i) => (
-              <div 
-                key={i} 
-                className={`aspect-square rounded-md ${Math.random() > 0.4 ? 'bg-indigo-600' : 'bg-slate-100'}`}
-                title={`Dzień ${i + 1}`}
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 mb-8">
+        {[
+          { id: 'progress', name: 'Postępy', icon: TrendingUp },
+          { id: 'manage', name: 'Zarządzanie kontem', icon: SettingsIcon },
+          { id: 'notifications', name: 'Powiadomienia', icon: Bell },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 px-6 py-4 text-sm font-bold transition-all relative ${
+              activeTab === tab.id ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <tab.icon size={18} />
+            {tab.name}
+            {activeTab === tab.id && (
+              <motion.div 
+                layoutId="activeTab"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" 
               />
-            ))}
-          </div>
-          <div className="mt-6 flex items-center justify-between text-xs text-slate-400">
-            <span>Mniej aktywny</span>
-            <div className="flex gap-1">
-              <div className="w-3 h-3 bg-slate-100 rounded-sm" />
-              <div className="w-3 h-3 bg-indigo-200 rounded-sm" />
-              <div className="w-3 h-3 bg-indigo-400 rounded-sm" />
-              <div className="w-3 h-3 bg-indigo-600 rounded-sm" />
-            </div>
-            <span>Bardziej aktywny</span>
-          </div>
-        </div>
+            )}
+          </button>
+        ))}
+      </div>
 
-        {/* Notification Settings */}
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2">
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <Bell className="text-indigo-600" size={24} />
-            Ustawienia powiadomień email
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-3">Częstotliwość raportów</label>
-              <div className="space-y-3">
-                {['none', 'daily', 'weekly', 'monthly'].map((freq) => (
-                  <label key={freq} className="flex items-center gap-3 p-4 rounded-2xl border border-slate-100 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
-                    <input 
-                      type="radio" 
-                      name="frequency" 
-                      value={freq}
-                      checked={notificationSettings.frequency === freq}
-                      onChange={(e) => setNotificationSettings({...notificationSettings, frequency: e.target.value})}
-                      className="w-4 h-4 text-indigo-600"
-                    />
-                    <span className="capitalize text-slate-700 font-medium">
-                      {freq === 'none' ? 'Brak' : freq === 'daily' ? 'Codziennie' : freq === 'weekly' ? 'Co tydzień' : 'Co miesiąc'}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-3">Alerty i powiadomienia</label>
-              <div className="space-y-4">
-                <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <Mail className="text-slate-400" size={20} />
-                    <span className="text-slate-700 font-medium">Alert braku logowania dziecka</span>
-                  </div>
-                  <input 
-                    type="checkbox" 
-                    checked={notificationSettings.alertOnMissingLogin}
-                    onChange={(e) => setNotificationSettings({...notificationSettings, alertOnMissingLogin: e.target.checked})}
-                    className="w-5 h-5 rounded text-indigo-600"
-                  />
-                </label>
-                <p className="text-xs text-slate-400 px-2">
-                  Otrzymasz wiadomość email, jeśli Twoje dziecko nie zaloguje się do platformy przed godziną 20:00 danego dnia.
-                </p>
-              </div>
-              
+      {selectedChild && activeTab === 'progress' && (
+        <motion.div
+          key={selectedChild.uid}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+            <h2 className="text-2xl font-bold text-slate-800">Statystyki: {selectedChild.displayName}</h2>
+            <div className="flex gap-4">
               <button 
-                onClick={handleSaveSettings}
-                disabled={savingSettings}
-                className="mt-8 w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
+                onClick={handleSendEmailReport}
+                disabled={sendingEmail}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
               >
-                {savingSettings ? 'Zapisywanie...' : 'Zapisz ustawienia'}
+                <Mail size={16} />
+                {sendingEmail ? 'Wysyłanie...' : 'Email'}
+              </button>
+              <button 
+                onClick={generatePDF}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors"
+              >
+                <Download size={16} />
+                PDF
               </button>
             </div>
           </div>
-        </div>
-      </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center text-orange-600">
+                  <Flame size={20} />
+                </div>
+                <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Streak</span>
+              </div>
+              <div className="text-3xl font-bold text-slate-900">{selectedChild.streak || 0} dni</div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
+                  <Clock size={20} />
+                </div>
+                <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Czas nauki</span>
+              </div>
+              <div className="text-3xl font-bold text-slate-900">{selectedChild.totalTimeSpent || 0} min</div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-600">
+                  <Target size={20} />
+                </div>
+                <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Punkty</span>
+              </div>
+              <div className="text-3xl font-bold text-slate-900">{selectedChild.totalPoints || 0}</div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                  <TrendingUp size={20} />
+                </div>
+                <span className="text-sm font-medium text-slate-500 uppercase tracking-wider">Ranking</span>
+              </div>
+              <div className="text-3xl font-bold text-slate-900">#12</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+              <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                <AlertCircle className="text-indigo-600" size={24} />
+                Nad czym popracować?
+              </h3>
+              <div className="space-y-4">
+                {(selectedChild.weakTopics || ['Ułamki dziesiętne', 'Pola figur płaskich']).map((topic: string, i: number) => (
+                  <div key={i} className="flex items-start gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-indigo-600 shadow-sm shrink-0">
+                      <BookOpen size={16} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900">{topic}</div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Uczeń miał trudności z ostatnim testem z tego działu. Zalecana powtórka.
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+              <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                <Calendar className="text-indigo-600" size={24} />
+                Aktywność
+              </h3>
+              <div className="grid grid-cols-7 gap-2">
+                {Array.from({ length: 31 }).map((_, i) => (
+                  <div 
+                    key={i} 
+                    className={`aspect-square rounded-md ${Math.random() > 0.4 ? 'bg-indigo-600' : 'bg-slate-100'}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {selectedChild && activeTab === 'manage' && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-8"
+        >
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+              <Lock className="text-indigo-600" size={24} />
+              Zmień hasło dziecka
+            </h3>
+            <form onSubmit={handleChangeChildPassword} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Nowe hasło</label>
+                <input
+                  type="password"
+                  required
+                  value={childNewPassword}
+                  onChange={e => setChildNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  placeholder="Minimum 6 znaków"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isChangingPassword}
+                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isChangingPassword ? <Loader2 className="animate-spin" size={20} /> : 'Zmień hasło'}
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+              <User size={24} className="text-indigo-600" />
+              Informacje o koncie
+            </h3>
+            <div className="space-y-4">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Nazwa wyświetlana</div>
+                <div className="font-bold text-slate-900">{selectedChild.displayName}</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Email</div>
+                <div className="font-bold text-slate-900">{selectedChild.email || 'Brak'}</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Data dołączenia</div>
+                <div className="font-bold text-slate-900">
+                  {selectedChild.createdAt?.seconds 
+                    ? new Date(selectedChild.createdAt.seconds * 1000).toLocaleDateString('pl-PL')
+                    : 'Brak danych'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {activeTab === 'notifications' && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-8"
+        >
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+              <Bell className="text-indigo-600" size={24} />
+              Ostatnie powiadomienia
+            </h3>
+            <div className="space-y-4">
+              {notifications.map((notif) => (
+                <div key={notif.id} className="flex items-start gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    notif.type === 'alert' ? 'bg-rose-100 text-rose-600' :
+                    notif.type === 'achievement' ? 'bg-amber-100 text-amber-600' :
+                    'bg-indigo-100 text-indigo-600'
+                  }`}>
+                    {notif.type === 'alert' ? <AlertCircle size={20} /> :
+                     notif.type === 'achievement' ? <Trophy size={20} /> :
+                     <Check size={20} />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-slate-900">{notif.message}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {new Date(notif.date).toLocaleString('pl-PL')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Settings Section */}
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+              <SettingsIcon className="text-indigo-600" size={24} />
+              Ustawienia powiadomień
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-3">Częstotliwość raportów</label>
+                <div className="space-y-3">
+                  {['none', 'daily', 'weekly', 'monthly'].map((freq) => (
+                    <label key={freq} className="flex items-center gap-3 p-4 rounded-2xl border border-slate-100 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
+                      <input 
+                        type="radio" 
+                        name="frequency" 
+                        value={freq}
+                        checked={notificationSettings.frequency === freq}
+                        onChange={(e) => setNotificationSettings({...notificationSettings, frequency: e.target.value})}
+                        className="w-4 h-4 text-indigo-600"
+                      />
+                      <span className="capitalize text-slate-700 font-medium">
+                        {freq === 'none' ? 'Brak' : freq === 'daily' ? 'Codziennie' : freq === 'weekly' ? 'Co tydzień' : 'Co miesiąc'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-3">Alerty i powiadomienia</label>
+                <div className="space-y-4">
+                  <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Mail className="text-slate-400" size={20} />
+                      <span className="text-slate-700 font-medium">Alert braku logowania dziecka</span>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      checked={notificationSettings.alertOnMissingLogin}
+                      onChange={(e) => setNotificationSettings({...notificationSettings, alertOnMissingLogin: e.target.checked})}
+                      className="w-5 h-5 rounded text-indigo-600"
+                    />
+                  </label>
+                  <button 
+                    onClick={handleSaveSettings}
+                    disabled={savingSettings}
+                    className="mt-8 w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  >
+                    {savingSettings ? 'Zapisywanie...' : 'Zapisz ustawienia'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Add Child Modal */}
+      <AnimatePresence>
+        {showAddChildModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-md p-8 rounded-3xl shadow-2xl border border-slate-200"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Dodaj konto ucznia</h3>
+                <button onClick={() => setShowAddChildModal(false)} className="text-slate-400 hover:text-slate-600">
+                  <X size={24} />
+                </button>
+              </div>
+
+              {addChildError && (
+                <div className="p-3 mb-4 bg-rose-50 text-rose-500 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertCircle size={14} />
+                  {addChildError}
+                </div>
+              )}
+
+              <form onSubmit={handleAddChild} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Imię dziecka</label>
+                  <input
+                    type="text"
+                    required
+                    value={newChildName}
+                    onChange={e => setNewChildName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="np. Adam"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Unikalna nazwa użytkownika</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={newChildUsername}
+                      onChange={e => setNewChildUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                      className={`w-full px-4 py-3 rounded-xl border focus:ring-2 outline-none transition-all ${
+                        isUsernameAvailable === false 
+                          ? 'border-rose-300 focus:ring-rose-500 bg-rose-50' 
+                          : isUsernameAvailable === true
+                            ? 'border-emerald-300 focus:ring-emerald-500 bg-emerald-50'
+                            : 'border-slate-200 focus:ring-indigo-500'
+                      }`}
+                      placeholder="np. adam_nowak_2024"
+                    />
+                    <div className="absolute right-3 top-3.5">
+                      {checkingUsername ? (
+                        <Loader2 className="animate-spin text-slate-400" size={18} />
+                      ) : isUsernameAvailable === true ? (
+                        <CheckCircle2 className="text-emerald-500" size={18} />
+                      ) : isUsernameAvailable === false ? (
+                        <XCircle className="text-rose-500" size={18} />
+                      ) : null}
+                    </div>
+                  </div>
+                  {isUsernameAvailable === false && (
+                    <p className="text-xs text-rose-500 mt-1 font-medium">Ta nazwa jest już zajęta</p>
+                  )}
+                  {isUsernameAvailable === true && (
+                    <p className="text-xs text-emerald-500 mt-1 font-medium">Nazwa jest dostępna</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Email dziecka (opcjonalnie)</label>
+                  <input
+                    type="email"
+                    value={newChildEmail}
+                    onChange={e => setNewChildEmail(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="adam@email.pl"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Hasło dla dziecka</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newChildPassword}
+                    onChange={e => setNewChildPassword(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="Minimum 6 znaków"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isAddingChild}
+                  className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isAddingChild ? <Loader2 className="animate-spin" size={20} /> : 'Utwórz konto ucznia'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,20 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { BookOpen, ChevronRight, Play, CheckCircle2, ArrowLeft, Clock, Target } from 'lucide-react';
+import { BookOpen, ChevronRight, Play, CheckCircle2, ArrowLeft, Clock, Target, RefreshCw } from 'lucide-react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { lessons } from '../data/lessons';
+import { db, collection, onSnapshot, query, orderBy } from '../firebase';
 import MathFormula from '../components/MathFormula';
 import ReactMarkdown from 'react-markdown';
 
 export default function Lessons() {
   const { lessonId } = useParams();
   const navigate = useNavigate();
-  const [selectedLesson, setSelectedLesson] = useState(lessons.find(l => l.id === lessonId) || lessons[0]);
+  const [lessons, setLessons] = useState<any[]>([]);
+  const [selectedLesson, setSelectedLesson] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'lessons'), orderBy('week', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const lList = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      }));
+      setLessons(lList);
+      
+      if (lessonId) {
+        const found = lList.find(l => l.id === lessonId);
+        if (found) setSelectedLesson(found);
+      } else if (lList.length > 0 && !selectedLesson) {
+        setSelectedLesson(lList[0]);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [lessonId]);
 
   const handleLessonSelect = (lesson: any) => {
     setSelectedLesson(lesson);
     navigate(`/lekcje/${lesson.id}`);
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <RefreshCw className="animate-spin text-indigo-600" size={40} />
+      </div>
+    );
+  }
+
+  if (lessons.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 pt-24 pb-20 px-4 text-center">
+        <div className="max-w-md mx-auto bg-white p-12 rounded-[3rem] border border-slate-200 shadow-sm">
+          <BookOpen className="mx-auto text-slate-200 mb-6" size={64} />
+          <h2 className="text-2xl font-black text-slate-900 mb-4">Brak lekcji</h2>
+          <p className="text-slate-500 mb-8">Administrator nie dodał jeszcze żadnych materiałów edukacyjnych.</p>
+          <Link to="/" className="inline-block px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-indigo-700 transition-all">
+            Wróć do strony głównej
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const currentLesson = selectedLesson || lessons[0];
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-20 px-4">
@@ -33,18 +81,18 @@ export default function Lessons() {
                     key={lesson.id}
                     onClick={() => handleLessonSelect(lesson)}
                     className={`w-full text-left p-4 rounded-2xl transition-all border ${
-                      selectedLesson.id === lesson.id
+                      currentLesson.id === lesson.id
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100'
                         : 'bg-slate-50 text-slate-600 border-transparent hover:bg-slate-100'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className={`text-[10px] font-black uppercase tracking-widest ${
-                        selectedLesson.id === lesson.id ? 'text-indigo-200' : 'text-slate-400'
+                        currentLesson.id === lesson.id ? 'text-indigo-200' : 'text-slate-400'
                       }`}>
                         Tydzień {lesson.week}
                       </span>
-                      {selectedLesson.id === lesson.id && <ChevronRight size={16} />}
+                      {currentLesson.id === lesson.id && <ChevronRight size={16} />}
                     </div>
                     <div className="font-bold text-sm line-clamp-2">{lesson.topic}</div>
                   </button>
@@ -74,7 +122,7 @@ export default function Lessons() {
           {/* Main Content - Lesson Detail */}
           <main className="flex-1">
             <motion.div
-              key={selectedLesson.id}
+              key={currentLesson.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="space-y-8"
@@ -83,7 +131,7 @@ export default function Lessons() {
                 <header className="mb-10">
                   <div className="flex items-center gap-3 mb-4">
                     <span className="px-4 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-black rounded-full uppercase tracking-widest">
-                      Tydzień {selectedLesson.week}
+                      Tydzień {currentLesson.week}
                     </span>
                     <span className="flex items-center gap-1.5 text-slate-400 text-xs font-bold">
                       <Clock size={14} />
@@ -91,7 +139,7 @@ export default function Lessons() {
                     </span>
                   </div>
                   <h1 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">
-                    {selectedLesson.topic}
+                    {currentLesson.topic}
                   </h1>
                   
                   <div className="grid sm:grid-cols-2 gap-4">
@@ -101,7 +149,7 @@ export default function Lessons() {
                         Zakres wiedzy
                       </h4>
                       <ul className="space-y-3">
-                        {selectedLesson.scope.map((item, i) => (
+                        {currentLesson.scope?.map((item: string, i: number) => (
                           <li key={i} className="flex items-start gap-3 text-sm text-slate-600 font-medium">
                             <CheckCircle2 className="text-emerald-500 mt-0.5 shrink-0" size={16} />
                             {item}
@@ -109,10 +157,10 @@ export default function Lessons() {
                         ))}
                       </ul>
                     </div>
-                    {selectedLesson.videoUrl && (
+                    {currentLesson.videoUrl && (
                       <div className="bg-slate-900 rounded-3xl overflow-hidden relative group cursor-pointer aspect-video flex items-center justify-center">
                         <img 
-                          src={`https://img.youtube.com/vi/${selectedLesson.videoUrl}/maxresdefault.jpg`} 
+                          src={`https://img.youtube.com/vi/${currentLesson.videoUrl}/maxresdefault.jpg`} 
                           alt="Video thumbnail"
                           className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform"
                         />
@@ -137,7 +185,7 @@ export default function Lessons() {
                       }
                     }}
                   >
-                    {selectedLesson.content}
+                    {currentLesson.content}
                   </ReactMarkdown>
                 </div>
 
@@ -152,7 +200,7 @@ export default function Lessons() {
                     </div>
                   </div>
                   <Link
-                    to={`/zadania?week=${selectedLesson.week}`}
+                    to={`/zadania?week=${currentLesson.week}`}
                     className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
                   >
                     Rozpocznij Zadania
@@ -163,16 +211,16 @@ export default function Lessons() {
               {/* Navigation between lessons */}
               <div className="flex items-center justify-between gap-4">
                 <button
-                  disabled={selectedLesson.week === 1}
-                  onClick={() => handleLessonSelect(lessons.find(l => l.week === selectedLesson.week - 1))}
+                  disabled={currentLesson.week === 1}
+                  onClick={() => handleLessonSelect(lessons.find(l => l.week === currentLesson.week - 1))}
                   className="flex items-center gap-3 px-6 py-4 bg-white text-slate-600 rounded-2xl font-bold border border-slate-200 hover:bg-slate-50 transition-all disabled:opacity-50"
                 >
                   <ArrowLeft size={20} />
                   Poprzednia Lekcja
                 </button>
                 <button
-                  disabled={selectedLesson.week === lessons.length}
-                  onClick={() => handleLessonSelect(lessons.find(l => l.week === selectedLesson.week + 1))}
+                  disabled={currentLesson.week === lessons.length}
+                  onClick={() => handleLessonSelect(lessons.find(l => l.week === currentLesson.week + 1))}
                   className="flex items-center gap-3 px-6 py-4 bg-white text-slate-600 rounded-2xl font-bold border border-slate-200 hover:bg-slate-50 transition-all disabled:opacity-50"
                 >
                   Następna Lekcja

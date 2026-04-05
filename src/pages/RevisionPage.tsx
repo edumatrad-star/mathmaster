@@ -44,33 +44,43 @@ export default function RevisionPage() {
     fetchQuestions();
   }, [weekNum]);
 
-  const handleQuizComplete = async (finalScore: number) => {
+  const handleQuizComplete = async (finalScore: number, details?: { questionId: number, isCorrect: boolean }[]) => {
     setScore(finalScore);
     setIsCompleted(true);
 
-    if (user && finalScore === questions.length) {
+    if (user) {
       try {
         const batch = writeBatch(db);
         const userRef = doc(db, 'users', user.uid);
         const publicRef = doc(db, 'public_profiles', user.uid);
+        const progressRef = doc(db, 'users', user.uid, 'progress', `week_${weekNum}`);
         
-        const pointsToAdd = 50;
-        const updatedCompletedWeeks = (profile?.completedWeeks || []).includes(weekNum) 
-          ? profile?.completedWeeks 
-          : [...(profile?.completedWeeks || []), weekNum];
+        batch.set(progressRef, {
+          lessonId: `week_${weekNum}`,
+          score: finalScore,
+          completedAt: new Date().toISOString(),
+          details: details || []
+        }, { merge: true });
+        
+        if (finalScore === questions.length) {
+          const pointsToAdd = 50;
+          const updatedCompletedWeeks = (profile?.completedWeeks || []).includes(weekNum) 
+            ? profile?.completedWeeks 
+            : [...(profile?.completedWeeks || []), weekNum];
 
-        batch.update(userRef, {
-          totalPoints: increment(pointsToAdd),
-          completedWeeks: updatedCompletedWeeks
-        });
+          batch.update(userRef, {
+            totalPoints: increment(pointsToAdd),
+            completedWeeks: updatedCompletedWeeks
+          });
 
-        batch.update(publicRef, {
-          totalPoints: increment(pointsToAdd)
-        });
+          batch.update(publicRef, {
+            totalPoints: increment(pointsToAdd)
+          });
+        }
 
         await batch.commit();
       } catch (error) {
-        console.error("Error updating points:", error);
+        console.error("Error updating progress:", error);
       }
     }
   };

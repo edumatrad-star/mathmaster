@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, onSnapshot, query, where, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, getDoc, getDocs, arrayUnion, arrayRemove, increment, writeBatch } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -23,7 +23,7 @@ export async function checkConnection() {
 }
 checkConnection();
 
-export { signInWithPopup, signOut, onAuthStateChanged, type User, signInWithEmailAndPassword, createUserWithEmailAndPassword };
+export { signInWithPopup, signOut, onAuthStateChanged, type User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile };
 export { collection, onSnapshot, query, where, orderBy, limit, setDoc, updateDoc, deleteDoc, addDoc, getDoc, getDocs, doc, arrayUnion, arrayRemove, increment, writeBatch };
 
 export enum OperationType {

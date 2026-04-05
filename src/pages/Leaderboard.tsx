@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Trophy, Medal, Crown, User, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { db, collection, query, orderBy, limit, onSnapshot } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 
 interface LeaderboardUser {
   uid: string;
@@ -12,10 +13,12 @@ interface LeaderboardUser {
 }
 
 export default function Leaderboard() {
+  const { user } = useAuth();
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!user) return;
     const q = query(
       collection(db, 'public_profiles'),
       orderBy('totalPoints', 'desc'),
@@ -32,7 +35,7 @@ export default function Leaderboard() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   if (loading) return (
     <div className="pt-32 flex justify-center">

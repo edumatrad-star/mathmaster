@@ -53,10 +53,18 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        (request.auth.token.email == "edumatrad@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "edumatrad@gmail.com") ||
         (request.auth.token.email == "admin@mathmaster.pl") ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isWydawca() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'wydawca')
       );
     }
 
@@ -64,40 +72,60 @@ service cloud.firestore {
       return isAuthenticated() && 
              exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent' &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.childUid == childId;
+             (childId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.childrenUids);
+    }
+
+    function isParentOfStudent(studentId) {
+      return isAuthenticated() && 
+             (
+               (exists(/databases/$(database)/documents/users/$(studentId)) && get(/databases/$(database)/documents/users/$(studentId)).data.parentUid == request.auth.uid) ||
+               (getAfter(/databases/$(database)/documents/users/$(studentId)) != null && getAfter(/databases/$(database)/documents/users/$(studentId)).data.parentUid == request.auth.uid)
+             );
     }
 
     function isValidEmail(email) {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
-    function isValidUser(data) {
+    function isValidUser(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'role', 'isPremium']) &&
-             data.uid == request.auth.uid &&
+             data.uid == userId &&
              isValidEmail(data.email) &&
-             data.role in ['user', 'admin', 'parent'] &&
+             data.role in ['user', 'admin', 'parent', 'student', 'wydawca'] &&
              data.isPremium is bool &&
+             (!('username' in data) || (data.username is string && data.username.size() >= 3 && data.username.size() <= 20)) &&
              (!('notificationFrequency' in data) || data.notificationFrequency in ['none', 'daily', 'weekly', 'monthly']) &&
              (!('alertOnMissingLogin' in data) || data.alertOnMissingLogin is bool) &&
-             (!('completedStudyTopics' in data) || data.completedStudyTopics is list);
+             (!('completedStudyTopics' in data) || data.completedStudyTopics is list) &&
+             (!('selectedLevels' in data) || data.selectedLevels is list) &&
+             (!('childrenUids' in data) || data.childrenUids is list) &&
+             (!('parentUid' in data) || data.parentUid == null || data.parentUid is string) &&
+             (!('schoolClass' in data) || data.schoolClass in ['', '4sp', '5sp', '6sp', '7sp', '8sp', 'egzamin_8', '1pp', '2pp', '3pp', '4pp', '5pp', 'matura']);
     }
 
     function isValidProgress(data) {
       return data.keys().hasAll(['userId', 'lessonId', 'status']) &&
-             data.userId == request.auth.uid &&
+             (data.userId == request.auth.uid || isParentOf(data.userId)) &&
              data.status in ['not-started', 'in-progress', 'completed'];
     }
 
-    function isValidLesson(data) {
-      return data.keys().hasAll(['id', 'title', 'content']) &&
-             data.id is string &&
-             data.title is string &&
-             data.content is string;
+    function isValidLesson(data, lessonId) {
+      return data.keys().hasAll(['id', 'topic', 'content', 'week']) &&
+             data.id == lessonId &&
+             data.topic is string &&
+             data.content is string &&
+             data.week is number;
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if isAuthenticated() && !exists(/databases/$(database)/documents/usernames/$(username));
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
 
     match /users/{userId} {
       // Users can read their own profile, parents can read child's profile, admins can read all
@@ -106,16 +134,18 @@ service cloud.firestore {
       // Strictly NO listing of users collection to prevent PII leak (emails)
       allow list: if isAdmin();
       
-      // Users can create their own profile with 'user' or 'parent' role
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role in ['user', 'parent'] || isAdmin());
+      // Users can create their own profile with 'user' or 'parent' role, or admins can create any
+      // Parents can create student profiles
+      allow create: if isAuthenticated() && (isOwner(userId) || isAdmin() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent' && request.resource.data.role == 'student' && request.resource.data.parentUid == request.auth.uid)) && isValidUser(request.resource.data, userId);
       
       // Users can update their own profile but cannot change their role or premium status unless they are admin
-      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
-                    (request.resource.data.role == resource.data.role && request.resource.data.isPremium == resource.data.isPremium || isAdmin());
+      // Parents can update their children's profiles
+      allow update: if isAuthenticated() && (isOwner(userId) || isParentOf(userId) || isAdmin()) && isValidUser(request.resource.data, userId) && 
+                    (isAdmin() || (request.resource.data.role == resource.data.role && request.resource.data.isPremium == resource.data.isPremium));
       
       match /progress/{lessonId} {
         allow read: if isOwner(userId) || isParentOf(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidProgress(request.resource.data);
+        allow create, update: if (isOwner(userId) || isParentOf(userId)) && isValidProgress(request.resource.data);
       }
     }
 
@@ -123,8 +153,8 @@ service cloud.firestore {
       // Public profiles are readable by any authenticated user for leaderboard
       allow read: if isAuthenticated();
       
-      // Only the owner or admin can write to their public profile
-      allow write: if isOwner(userId) || isAdmin();
+      // Only the owner, admin, or parent can write to their public profile
+      allow write: if isOwner(userId) || isAdmin() || isParentOfStudent(userId);
     }
 
     match /quizzes/{quizId} {
@@ -134,7 +164,7 @@ service cloud.firestore {
 
     match /lessons/{lessonId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin() && isValidLesson(request.resource.data);
+      allow write: if isWydawca() && isValidLesson(request.resource.data, lessonId);
     }
 
     match /questions/{questionId} {
@@ -143,7 +173,7 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
 

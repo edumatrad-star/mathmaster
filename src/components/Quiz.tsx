@@ -14,7 +14,7 @@ interface Question {
 
 interface QuizProps {
   questions: Question[];
-  onComplete: (score: number) => void;
+  onComplete: (score: number, details?: { questionId: number, isCorrect: boolean }[]) => void;
 }
 
 export default function Quiz({ questions, onComplete }: QuizProps) {
@@ -28,6 +28,7 @@ export default function Quiz({ questions, onComplete }: QuizProps) {
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
   const [showResults, setShowResults] = useState(false);
+  const [answerDetails, setAnswerDetails] = useState<{ questionId: number, isCorrect: boolean }[]>([]);
 
   const startQuiz = () => {
     let filtered = [...questions];
@@ -39,6 +40,7 @@ export default function Quiz({ questions, onComplete }: QuizProps) {
     const shuffled = filtered.sort(() => Math.random() - 0.5);
     setActiveQuestions(shuffled.slice(0, numQuestions));
     setIsConfiguring(false);
+    setAnswerDetails([]);
   };
 
   const handleOptionSelect = (index: number) => {
@@ -51,6 +53,12 @@ export default function Quiz({ questions, onComplete }: QuizProps) {
     
     const isCorrect = selectedOption === activeQuestions[currentQuestion].correctAnswer;
     if (isCorrect) setScore(prev => prev + 1);
+    
+    setAnswerDetails(prev => [
+      ...prev,
+      { questionId: activeQuestions[currentQuestion].id, isCorrect }
+    ]);
+    
     setIsAnswered(true);
   };
 
@@ -61,7 +69,7 @@ export default function Quiz({ questions, onComplete }: QuizProps) {
       setIsAnswered(false);
     } else {
       setShowResults(true);
-      onComplete(score + (selectedOption === activeQuestions[currentQuestion].correctAnswer ? 1 : 0));
+      onComplete(score, answerDetails);
     }
   };
 

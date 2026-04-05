@@ -1,15 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { BookOpen, ChevronRight, GraduationCap, Search, Star, Video, Target, Clock } from 'lucide-react';
+import { BookOpen, ChevronRight, GraduationCap, Search, Star, Video, Target, Clock, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { lessons } from '../data/lessons';
+import { db, collection, onSnapshot, query, orderBy } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 
 export default function LessonsList() {
+  const { profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [lessons, setLessons] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  const filteredLessons = lessons.filter(lesson => 
-    lesson.topic.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    lesson.scope.some(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
+  useEffect(() => {
+    if (!profile) return;
+    const q = query(collection(db, 'lessons'), orderBy('week', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const lList = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      }));
+      setLessons(lList);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [profile]);
+
+  const filteredLessons = lessons.filter(lesson => {
+    // Admin sees everything
+    if (profile?.role === 'admin') return true;
+
+    // Demo lessons are visible to everyone
+    if (lesson.isDemo) return true;
+
+    // If user is not enrolled in any class, they only see demo lessons
+    if (!profile?.schoolClass) return false;
+
+    // If lesson has a specific class, check if user matches
+    if (lesson.schoolClass) {
+      return lesson.schoolClass.toLowerCase() === profile.schoolClass.toLowerCase();
+    }
+
+    // Standard lessons (no class assigned) are visible to all enrolled students
+    return true;
+  }).filter(lesson => 
+    (lesson.topic || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (lesson.scope || []).some((s: string) => s.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   // Group lessons by week
@@ -17,9 +53,17 @@ export default function LessonsList() {
     if (!acc[lesson.week]) acc[lesson.week] = [];
     acc[lesson.week].push(lesson);
     return acc;
-  }, {} as Record<number, typeof lessons>);
+  }, {} as Record<number, any[]>);
 
   const sortedWeeks = Object.keys(lessonsByWeek).map(Number).sort((a, b) => a - b);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <RefreshCw className="animate-spin text-indigo-600" size={40} />
+      </div>
+    );
+  }
 
   return (
     <div className="pt-24 pb-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
@@ -52,7 +96,7 @@ export default function LessonsList() {
               </div>
               <div>
                 <h2 className="text-2xl font-black text-slate-900">Tydzień {week}</h2>
-                <p className="text-slate-500 text-sm font-medium">Zakres wiedzy: {lessonsByWeek[week][0].scope.join(', ')}</p>
+                <p className="text-slate-500 text-sm font-medium">Zakres wiedzy: {lessonsByWeek[week][0].scope?.join(', ') || 'Brak zakresu'}</p>
               </div>
             </div>
 
@@ -75,6 +119,12 @@ export default function LessonsList() {
                         Wideo
                       </div>
                     )}
+                    {lesson.isDemo && (
+                      <div className="flex items-center gap-1 text-[10px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-1 rounded-full">
+                        <Star size={12} />
+                        Demo
+                      </div>
+                    )}
                   </div>
 
                   <h3 className="text-xl font-black text-slate-900 mb-3 group-hover:text-indigo-600 transition-colors">
@@ -82,7 +132,7 @@ export default function LessonsList() {
                   </h3>
                   
                   <p className="text-slate-500 text-sm line-clamp-3 mb-8 flex-1">
-                    {lesson.scope.join(', ')}
+                    {lesson.scope?.join(', ') || ''}
                   </p>
 
                   <div className="flex items-center justify-between pt-6 border-t border-slate-50">

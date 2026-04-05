@@ -5,6 +5,7 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import LessonPage from './pages/LessonPage';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 import LessonsList from './pages/LessonsList';
 import Leaderboard from './pages/Leaderboard';
 import ParentDashboard from './pages/ParentDashboard';
@@ -18,6 +19,7 @@ import GraphGeneratorPage from './pages/tools/GraphGeneratorPage';
 import UnitConverterPage from './pages/tools/UnitConverterPage';
 import AdminPanel from './pages/AdminPanel';
 import AdminDocumentation from './pages/AdminDocumentation';
+import ProfilePage from './pages/ProfilePage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -36,6 +38,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
             <Route 
               path="/dashboard" 
               element={
@@ -141,6 +144,14 @@ export default function App() {
               } 
             />
             <Route 
+              path="/lekcje/:id" 
+              element={
+                <ProtectedRoute>
+                  <LessonPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
               path="/admin" 
               element={
                 <ProtectedRoute>
@@ -153,6 +164,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AdminDocumentation />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/profile" 
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
                 </ProtectedRoute>
               } 
             />

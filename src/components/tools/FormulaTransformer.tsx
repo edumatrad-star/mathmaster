@@ -252,6 +252,31 @@ const FORMULAS: Formula[] = [
         ]
       }
     }
+  },
+  {
+    id: 'compound-interest',
+    name: 'Procent składany',
+    latex: 'A = P(1 + \\frac{r}{n})^{nt}',
+    variables: ['A', 'P', 'r', 'n', 't'],
+    transformations: {
+      t: {
+        result: 't = \\frac{\\ln(A/P)}{n \\ln(1 + r/n)}',
+        steps: [
+          'Podziel obie strony przez $P$',
+          '$\\frac{A}{P} = (1 + \\frac{r}{n})^{nt}$',
+          'Nałóż logarytm naturalny na obie strony',
+          '$\\ln(\\frac{A}{P}) = \\ln((1 + \\frac{r}{n})^{nt})$',
+          'Użyj własności logarytmu: $\\ln(x^y) = y \\ln(x)$',
+          '$\\ln(\\frac{A}{P}) = nt \\ln(1 + \\frac{r}{n})$',
+          'Podziel obie strony przez $n \\ln(1 + \\frac{r}{n})$',
+          '$t = \\frac{\\ln(A/P)}{n \\ln(1 + r/n)}$'
+        ]
+      },
+      P: {
+        result: 'P = \\frac{A}{(1 + r/n)^{nt}}',
+        steps: ['Podziel obie strony przez $(1 + \\frac{r}{n})^{nt}$', '$P = \\frac{A}{(1 + r/n)^{nt}}$']
+      }
+    }
   }
 ];
 
