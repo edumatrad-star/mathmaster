@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Clock, Flame, Target, AlertCircle, TrendingUp, BookOpen, Calendar, Mail, Bell, FileText, Download, UserPlus, Check, X, Loader2, ChevronRight, Plus, Settings as SettingsIcon, Lock, Trophy, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { auth, db, doc, getDoc, updateDoc, collection, query, where, getDocs } from '../firebase';
+import { supabase } from '../supabase';
 import MathChart from '../components/MathChart';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -35,8 +35,8 @@ export default function ParentDashboard() {
   ]);
 
   const [notificationSettings, setNotificationSettings] = useState({
-    frequency: profile?.notificationFrequency || 'none',
-    alertOnMissingLogin: profile?.alertOnMissingLogin || false
+    frequency: profile?.notification_frequency || 'none',
+    alertOnMissingLogin: profile?.alert_on_missing_login || false
   });
 
   useEffect(() => {
@@ -62,17 +62,17 @@ export default function ParentDashboard() {
 
   useEffect(() => {
     async function fetchChildrenData() {
-      if (profile?.role === 'parent' && profile?.childrenUids?.length > 0) {
-        const data = [];
-        for (const uid of profile.childrenUids) {
-          const childDoc = await getDoc(doc(db, 'users', uid));
-          if (childDoc.exists()) {
-            data.push(childDoc.data());
+      if (profile?.role === 'parent' && profile?.children_uids?.length > 0) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .in('id', profile.children_uids);
+          
+        if (data) {
+          setChildrenData(data);
+          if (data.length > 0 && !selectedChildId) {
+            setSelectedChildId(data[0].id);
           }
-        }
-        setChildrenData(data);
-        if (data.length > 0 && !selectedChildId) {
-          setSelectedChildId(data[0].uid);
         }
       }
       setLoading(false);
@@ -80,7 +80,7 @@ export default function ParentDashboard() {
     fetchChildrenData();
   }, [profile, selectedChildId]);
 
-  const selectedChild = childrenData.find(c => c.uid === selectedChildId);
+  const selectedChild = childrenData.find(c => c.id === selectedChildId);
 
   const handleAddChild = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,10 +105,15 @@ export default function ParentDashboard() {
     if (!user) return;
     setSavingSettings(true);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        notificationFrequency: notificationSettings.frequency,
-        alertOnMissingLogin: notificationSettings.alertOnMissingLogin
-      });
+      const { error } = await supabase
+        .from('users')
+        .update({
+          notification_frequency: notificationSettings.frequency,
+          alert_on_missing_login: notificationSettings.alertOnMissingLogin
+        })
+        .eq('id', user.id);
+        
+      if (error) throw error;
       alert('Ustawienia zapisane pomyślnie!');
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -128,12 +133,12 @@ export default function ParentDashboard() {
     
     setIsChangingPassword(true);
     try {
-      const idToken = await auth.currentUser?.getIdToken();
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/parent/change-child-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+          'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
           childUid: selectedChildId,
@@ -145,9 +150,6 @@ export default function ParentDashboard() {
         alert('Hasło zostało zmienione pomyślnie!');
         setChildNewPassword('');
       } else {
-        if (data.error && data.error.includes('There is no user record')) {
-          throw new Error('Konto ucznia nie istnieje w systemie logowania. Zmiana hasła nie powiodła się.');
-        }
         throw new Error(data.error);
       }
     } catch (error: any) {

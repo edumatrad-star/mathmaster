@@ -5,7 +5,7 @@ import MathChart from '../components/MathChart';
 import StudyTimeTracker from '../components/StudyTimeTracker';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
-import { db, doc, onSnapshot } from '../firebase';
+import { supabase } from '../supabase';
 
 const progressData = [
   { day: 'Pon', score: 45 },
@@ -37,15 +37,20 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    if (!user) return;
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'site'), (snapshot) => {
-      if (snapshot.exists()) {
-        setConfig(snapshot.data().dashboard);
+    async function fetchSettings() {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'site')
+        .single();
+        
+      if (data) {
+        setConfig(data.data.dashboard);
       }
       setLoadingConfig(false);
-    });
-    return () => unsubscribe();
-  }, [user]);
+    }
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const handleUpdate = (event: any) => {
@@ -65,7 +70,7 @@ export default function Dashboard() {
   const userRole = profile?.role || 'user';
 
   const isVisible = (sectionId: string) => {
-    if (!config || !config.sections[sectionId]) return true;
+    if (!config || !config.sections?.[sectionId]) return true;
     const section = config.sections[sectionId];
     return section.visible && section.roles.includes(userRole);
   };
@@ -86,7 +91,7 @@ export default function Dashboard() {
           {isVisible('welcome') && (
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-slate-900">Witaj ponownie, {user?.displayName?.split(' ')[0]}! 👋</h1>
+                <h1 className="text-3xl font-bold text-slate-900">Witaj ponownie, {(profile?.display_name || user?.user_metadata?.full_name || 'Użytkowniku').split(' ')[0]}! 👋</h1>
                 <p className="text-slate-500 mt-2">Kontynuuj naukę tam, gdzie skończyłeś.</p>
               </div>
               <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm">

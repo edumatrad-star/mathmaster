@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, onAuthStateChanged, User, signInWithPopup, googleProvider, signOut, db, doc, getDoc, setDoc, onSnapshot, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, handleFirestoreError, OperationType, writeBatch, arrayUnion } from '../firebase';
+import { supabase } from '../supabase';
+import { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
@@ -23,99 +24,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let unsubscribeProfile: (() => void) | null = null;
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-        unsubscribeProfile = null;
-      }
-
-      if (currentUser) {
-        // Initial fetch to ensure profile exists
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        try {
-          const userDoc = await getDoc(userDocRef).catch(err => handleFirestoreError(err, OperationType.GET, `users/${currentUser.uid}`));
-          
-          if (!userDoc.exists()) {
-            const isAdminEmail = currentUser.email?.toLowerCase() === 'edumatrad@gmail.com' || currentUser.email?.toLowerCase() === 'admin@mathmaster.pl';
-            const newProfile = {
-              uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName || (currentUser.email === 'admin@mathmaster.pl' ? 'Administrator' : 'Użytkownik'),
-              photoURL: currentUser.photoURL,
-              role: isAdminEmail ? 'admin' : 'user',
-              isPremium: isAdminEmail,
-              createdAt: new Date().toISOString(),
-              streak: 1,
-              lastActiveDate: new Date().toISOString().split('T')[0],
-              totalPoints: 0,
-              totalTimeSpent: 0,
-              weakTopics: [],
-              notificationFrequency: 'none',
-              alertOnMissingLogin: false,
-              completedStudyTopics: []
-            };
-            
-            const publicProfile = {
-              uid: currentUser.uid,
-              displayName: newProfile.displayName,
-              photoURL: newProfile.photoURL,
-              totalPoints: newProfile.totalPoints,
-              streak: newProfile.streak
-            };
-
-            await setDoc(userDocRef, newProfile).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`));
-            await setDoc(doc(db, 'public_profiles', currentUser.uid), publicProfile).catch(err => handleFirestoreError(err, OperationType.WRITE, `public_profiles/${currentUser.uid}`));
-            setProfile(newProfile);
-          } else {
-            const currentData = userDoc.data();
-            setProfile(currentData);
-            // Check if admin role needs to be assigned to existing user
-            const isAdminEmail = currentUser.email?.toLowerCase() === 'edumatrad@gmail.com' || currentUser.email?.toLowerCase() === 'admin@mathmaster.pl';
-            if (isAdminEmail && currentData.role !== 'admin') {
-              const updatedData = { ...currentData, role: 'admin', isPremium: true };
-              await setDoc(userDocRef, updatedData, { merge: true }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`));
-              setProfile(updatedData);
-            }
-            
-            // Ensure public profile exists and is updated
-            const publicProfile = {
-              uid: currentUser.uid,
-              displayName: currentData.displayName || currentUser.displayName || 'Użytkownik',
-              photoURL: currentData.photoURL || currentUser.photoURL || '',
-              totalPoints: currentData.totalPoints || 0,
-              streak: currentData.streak || 0
-            };
-            await setDoc(doc(db, 'public_profiles', currentUser.uid), publicProfile, { merge: true }).catch(err => handleFirestoreError(err, OperationType.WRITE, `public_profiles/${currentUser.uid}`));
-          }
-
-          // Set up real-time listener for profile
-          unsubscribeProfile = onSnapshot(userDocRef, (doc) => {
-            if (doc.exists()) {
-              setProfile(doc.data());
-            }
-          }, (err) => handleFirestoreError(err, OperationType.GET, `users/${currentUser.uid}`));
-        } catch (error) {
-          console.error("Error fetching user profile:", error);
-        }
+    // Check active sessions and sets the user
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
       } else {
-        setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeProfile) unsubscribeProfile();
-    };
+    // Listen for changes on auth state (logged in, signed out, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      setProfile(data);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const login = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+      });
     } catch (error) {
       console.error("Login failed", error);
     }
@@ -124,13 +78,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkUsernameAvailability = async (username: string) => {
     if (!username || username.length < 3) return false;
     try {
-      const usernameDoc = await getDoc(doc(db, 'usernames', username.toLowerCase()));
-      return !usernameDoc.exists();
+      const { data, error } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username.toLowerCase())
+        .maybeSingle();
+        
+      if (error) throw error;
+      return !data; // Available if no data found
     } catch (err) {
       console.error("Error checking username availability:", err);
-      // If we can't check, we assume it's not available to be safe, 
-      // or we could throw and let the UI handle it.
-      // Let's throw a simpler error so it's caught by the UI.
       throw err;
     }
   };
@@ -153,25 +110,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       let emailToUse = identifier;
 
-      // Check if identifier is not an email (doesn't contain @)
       if (!identifier.includes('@')) {
-        // Look up the username in the usernames collection
-        const usernameDoc = await getDoc(doc(db, 'usernames', identifier.toLowerCase()));
-        if (usernameDoc.exists()) {
-          const uid = usernameDoc.data().uid;
-          // Get the user document to find the email
-          const userDoc = await getDoc(doc(db, 'users', uid));
-          if (userDoc.exists() && userDoc.data().email) {
-            emailToUse = userDoc.data().email;
-          } else {
-            throw new Error("Nie znaleziono adresu email dla tej nazwy użytkownika.");
-          }
+        const { data, error } = await supabase
+          .from('users')
+          .select('email')
+          .eq('username', identifier.toLowerCase())
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data && data.email) {
+          emailToUse = data.email;
         } else {
           throw new Error("Nie znaleziono użytkownika o takiej nazwie.");
         }
       }
 
-      await signInWithEmailAndPassword(auth, emailToUse, password);
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailToUse,
+        password,
+      });
+
+      if (error) throw error;
     } catch (error: any) {
       console.error("Login failed", error);
       throw error;
@@ -180,58 +139,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (email: string, password: string, displayName: string, username: string, selectedLevels: string[]) => {
     try {
-      // Check username availability one last time
       const isAvailable = await checkUsernameAvailability(username);
       if (!isAvailable) {
         throw new Error("Nazwa użytkownika jest już zajęta.");
       }
 
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const currentUser = userCredential.user;
-      
-      // Update Firebase Auth profile first so onAuthStateChanged can see the name
-      await updateProfile(currentUser, { displayName });
-      
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const usernameDocRef = doc(db, 'usernames', username.toLowerCase());
-      
-      const newProfile = {
-        uid: currentUser.uid,
-        username: username.toLowerCase(),
-        email: currentUser.email,
-        displayName: displayName || 'Użytkownik',
-        photoURL: '',
-        role: 'parent', // Default role for new users
-        selectedLevels: selectedLevels,
-        childrenUids: [],
-        isPremium: false,
-        createdAt: new Date().toISOString(),
-        streak: 1,
-        lastActiveDate: new Date().toISOString().split('T')[0],
-        totalPoints: 0,
-        totalTimeSpent: 0,
-        weakTopics: [],
-        notificationFrequency: 'none',
-        alertOnMissingLogin: false,
-        completedStudyTopics: []
-      };
-      
-      const publicProfile = {
-        uid: currentUser.uid,
-        displayName: newProfile.displayName,
-        photoURL: newProfile.photoURL,
-        totalPoints: newProfile.totalPoints,
-        streak: newProfile.streak
-      };
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: displayName,
+            role: 'parent'
+          }
+        }
+      });
 
-      // Atomic operations using batch
-      const batch = writeBatch(db);
-      batch.set(usernameDocRef, { uid: currentUser.uid });
-      batch.set(userDocRef, newProfile);
-      batch.set(doc(db, 'public_profiles', currentUser.uid), publicProfile);
+      if (error) throw error;
       
-      await batch.commit().catch(err => handleFirestoreError(err, OperationType.WRITE, `register/${currentUser.uid}`));
-      setProfile(newProfile);
+      // The trigger in Supabase will create the user record, but we need to update the extra fields
+      if (data.user) {
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            username: username.toLowerCase(),
+            selected_levels: selectedLevels,
+            role: 'parent'
+          })
+          .eq('id', data.user.id);
+          
+        if (updateError) throw updateError;
+        await fetchProfile(data.user.id);
+      }
     } catch (error: any) {
       console.error("Registration failed", error);
       throw error;
@@ -244,24 +183,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Check username availability
       const isAvailable = await checkUsernameAvailability(studentUsername);
       if (!isAvailable) {
         throw new Error("Nazwa użytkownika dla ucznia jest już zajęta.");
       }
 
-      const idToken = await auth.currentUser?.getIdToken();
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/parent/add-child', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+          'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
           displayName: studentName,
           username: studentUsername,
           email: studentEmail,
-          password: studentPassword || 'MathMaster123!' // Default password if not provided
+          password: studentPassword || 'MathMaster123!'
         })
       });
 
@@ -285,7 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
     } catch (error) {
       console.error("Logout failed", error);
     }
@@ -294,20 +232,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginAsAdmin = async (password: string) => {
     if (password === 'admin') {
       try {
-        // Sign in with a dedicated admin account
-        await signInWithEmailAndPassword(auth, 'admin@mathmaster.pl', 'admin123');
+        const { error } = await supabase.auth.signInWithPassword({
+          email: 'admin@mathmaster.pl',
+          password: 'admin123',
+        });
+        
+        if (error) {
+          // If not found, try to sign up
+          if (error.message.includes('Invalid login credentials')) {
+            const { error: signUpError } = await supabase.auth.signUp({
+              email: 'admin@mathmaster.pl',
+              password: 'admin123',
+              options: {
+                data: {
+                  full_name: 'Administrator',
+                  role: 'admin'
+                }
+              }
+            });
+            if (signUpError) return false;
+            return true;
+          }
+          return false;
+        }
         return true;
       } catch (error: any) {
-        if (error.code === 'auth/user-not-found') {
-          try {
-            // Create the admin account if it doesn't exist
-            await createUserWithEmailAndPassword(auth, 'admin@mathmaster.pl', 'admin123');
-            return true;
-          } catch (createError) {
-            console.error("Failed to create admin account", createError);
-            return false;
-          }
-        }
         console.error("Admin login failed", error);
         return false;
       }

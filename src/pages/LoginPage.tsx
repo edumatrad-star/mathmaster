@@ -27,12 +27,12 @@ export default function LoginPage() {
       await loginWithEmail(email, password);
       navigate('/dashboard');
     } catch (err: any) {
-      if (err.code === 'auth/invalid-credential') {
+      if (err.message?.includes('Invalid login credentials') || err.status === 400) {
         setError('Błędny email lub hasło');
-      } else if (err.code === 'auth/user-not-found') {
+      } else if (err.message?.includes('User not found')) {
         setError('Użytkownik nie istnieje');
       } else {
-        setError('Wystąpił błąd podczas logowania');
+        setError(err.message || 'Wystąpił błąd podczas logowania');
       }
     } finally {
       setIsSubmitting(false);
@@ -82,7 +82,7 @@ export default function LoginPage() {
               onClick={login}
               className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
             >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+              <img src="https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_128dp.png" alt="Google" className="w-5 h-5" />
               Zaloguj się przez Google
             </button>
 

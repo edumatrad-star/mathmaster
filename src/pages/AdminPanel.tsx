@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Database, ShieldCheck, AlertCircle, RefreshCw, Plus, X, Filter, ChevronDown, ChevronUp, Eye, EyeOff, Lock, Unlock, LayoutGrid, Settings as SettingsIcon, FileText, Download, Upload, User, Users, BookOpen, Shield, Activity, Search, Edit2, UserPlus, Save } from 'lucide-react';
-import { db, auth, collection, onSnapshot, deleteDoc, doc, setDoc, addDoc, getDoc, checkConnection } from '../firebase';
+import { Trash2, Database, ShieldCheck, AlertCircle, RefreshCw, Plus, X, Filter, ChevronDown, ChevronUp, Eye, EyeOff, Lock, Unlock, LayoutGrid, Settings as SettingsIcon, FileText, Download, Upload, User, Users, BookOpen, Shield, Activity, Search, Edit2, UserPlus, Save, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { supabase } from '../supabase';
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area 
@@ -103,17 +103,15 @@ export default function AdminPanel() {
     setShowProgressModal(true);
     setLoadingProgress(true);
     try {
-      // Fetch progress from users/{uid}/progress collection
-      const progressRef = collection(db, 'users', user.uid, 'progress');
-      const unsubscribe = onSnapshot(progressRef, (snapshot) => {
-        const progressList = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          id: doc.id
-        }));
-        setUserProgressData(progressList);
-        setLoadingProgress(false);
-      });
-      // Note: We are not unsubscribing here to keep it simple, but in a real app we should manage this subscription
+      // Fetch progress from lesson_progress table
+      const { data, error } = await supabase
+        .from('lesson_progress')
+        .select('*')
+        .eq('user_id', user.id);
+        
+      if (error) throw error;
+      setUserProgressData(data || []);
+      setLoadingProgress(false);
     } catch (error) {
       console.error("Error fetching user progress:", error);
       setLoadingProgress(false);
@@ -129,41 +127,45 @@ export default function AdminPanel() {
     }
     
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      console.log("Current user:", auth.currentUser?.email);
-      console.log("ID Token present:", !!idToken);
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
       
       if (editingUser) {
-        // Update Firestore data
+        // Update Supabase data
         const userData = {
-          displayName: userFormData.displayName,
+          display_name: userFormData.displayName,
           email: userFormData.email,
           role: userFormData.role,
-          isPremium: userFormData.isPremium,
-          totalPoints: userFormData.totalPoints,
-          enrolledWeeks: userFormData.enrolledWeeks,
-          childrenUids: userFormData.childrenUids,
-          linkedChildEmail: userFormData.linkedChildEmail,
-          schoolClass: userFormData.schoolClass,
-          updatedAt: new Date().toISOString()
+          is_premium: userFormData.isPremium,
+          total_points: userFormData.totalPoints,
+          enrolled_weeks: userFormData.enrolledWeeks,
+          children_uids: userFormData.childrenUids,
+          linked_child_email: userFormData.linkedChildEmail,
+          school_class: userFormData.schoolClass,
+          updated_at: new Date().toISOString()
         };
 
-        const oldChildren = editingUser.childrenUids || [];
+        const oldChildren = editingUser.children_uids || [];
         const newChildren = userFormData.childrenUids || [];
         const added = newChildren.filter((id: string) => !oldChildren.includes(id));
         const removed = oldChildren.filter((id: string) => !newChildren.includes(id));
 
-        await setDoc(doc(db, 'users', editingUser.uid), userData, { merge: true });
+        const { error: updateError } = await supabase
+          .from('users')
+          .update(userData)
+          .eq('id', editingUser.uid);
 
-        // Update reciprocal parentUid for children
+        if (updateError) throw updateError;
+
+        // Update reciprocal parent_uid for children
         for (const childId of added) {
-          await setDoc(doc(db, 'users', childId), { parentUid: editingUser.uid }, { merge: true });
+          await supabase.from('users').update({ parent_uid: editingUser.uid }).eq('id', childId);
         }
         for (const childId of removed) {
           // Only clear if it was pointing to this parent
-          const childDoc = await getDoc(doc(db, 'users', childId));
-          if (childDoc.exists() && childDoc.data().parentUid === editingUser.uid) {
-            await setDoc(doc(db, 'users', childId), { parentUid: null }, { merge: true });
+          const { data: childDoc } = await supabase.from('users').select('parent_uid').eq('id', childId).single();
+          if (childDoc && childDoc.parent_uid === editingUser.uid) {
+            await supabase.from('users').update({ parent_uid: null }).eq('id', childId);
           }
         }
 
@@ -173,7 +175,7 @@ export default function AdminPanel() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`
+              'Authorization': `Bearer ${accessToken}`
             },
             body: JSON.stringify({
               uid: editingUser.uid,
@@ -186,7 +188,7 @@ export default function AdminPanel() {
             const result = await response.json();
             if (!response.ok) {
               if (result.error && result.error.includes('There is no user record')) {
-                throw new Error('Użytkownik nie istnieje w systemie autoryzacji (Firebase Auth). Zmiana hasła nie powiodła się.');
+                throw new Error('Użytkownik nie istnieje w systemie autoryzacji. Zmiana hasła nie powiodła się.');
               }
               throw new Error(result.error || 'Unknown error');
             }
@@ -204,7 +206,7 @@ export default function AdminPanel() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
+            'Authorization': `Bearer ${accessToken}`
           },
           body: JSON.stringify({
             email: userFormData.email,
@@ -254,12 +256,13 @@ export default function AdminPanel() {
         return user;
       });
 
-      const idToken = await auth.currentUser?.getIdToken();
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
       const response = await fetch('/api/admin/import-users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify({ users: usersToImport })
       });
@@ -286,12 +289,13 @@ export default function AdminPanel() {
   const handleDeleteUser = async (userId: string) => {
     if (window.confirm('Czy na pewno chcesz usunąć tego użytkownika?')) {
       try {
-        const idToken = await auth.currentUser?.getIdToken();
+        const { data: { session } } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
         const response = await fetch('/api/admin/delete-user', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
+            'Authorization': `Bearer ${accessToken}`
           },
           body: JSON.stringify({ uid: userId })
         });
@@ -344,13 +348,23 @@ export default function AdminPanel() {
   const handleSaveLesson = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const lessonId = editingLesson ? editingLesson.docId : `lesson_${Date.now()}`;
       const lessonData = {
-        ...lessonFormData,
-        id: lessonId,
-        updatedAt: new Date().toISOString()
+        week: lessonFormData.week,
+        topic: lessonFormData.topic,
+        scope: lessonFormData.scope,
+        content: lessonFormData.content,
+        video_url: lessonFormData.videoUrl,
+        is_demo: lessonFormData.isDemo,
+        school_class: lessonFormData.schoolClass,
+        updated_at: new Date().toISOString()
       };
-      await setDoc(doc(db, 'lessons', lessonId), lessonData, { merge: true });
+
+      if (editingLesson) {
+        await supabase.from('lessons').update(lessonData).eq('id', editingLesson.docId);
+      } else {
+        await supabase.from('lessons').insert([{ ...lessonData, id: `lesson_${Date.now()}` }]);
+      }
+      
       setShowLessonModal(false);
       alert(editingLesson ? 'Lekcja zaktualizowana!' : 'Lekcja dodana!');
     } catch (error) {
@@ -362,7 +376,7 @@ export default function AdminPanel() {
   const handleDeleteLesson = async (lessonId: string) => {
     if (window.confirm('Czy na pewno chcesz usunąć tę lekcję?')) {
       try {
-        await deleteDoc(doc(db, 'lessons', lessonId));
+        await supabase.from('lessons').delete().eq('id', lessonId);
         alert('Lekcja usunięta!');
       } catch (error) {
         console.error("Error deleting lesson:", error);
@@ -372,8 +386,13 @@ export default function AdminPanel() {
   };
 
   const handleCheckConnection = async () => {
-    const result = await checkConnection();
-    setConnectionStatus({ checked: true, success: result.success, error: result.error });
+    try {
+      const { data, error } = await supabase.from('settings').select('id').limit(1);
+      if (error) throw error;
+      setConnectionStatus({ checked: true, success: true });
+    } catch (error: any) {
+      setConnectionStatus({ checked: true, success: false, error: error.message });
+    }
   };
 
   const downloadTemplate = () => {
@@ -408,16 +427,25 @@ export default function AdminPanel() {
         if (!Array.isArray(json)) throw new Error('Nieprawidłowy format pliku. Oczekiwano tablicy.');
 
         setIsSeeding(true);
+        const questionsToInsert = [];
         for (const q of json) {
           const weekNum = q.week || 1;
           const docId = `imported_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          await setDoc(doc(db, 'questions', docId), {
-            ...q,
-            id: q.id || Date.now() + Math.floor(Math.random() * 1000),
+          questionsToInsert.push({
+            id: docId,
+            text: q.text,
+            options: q.options,
+            correct_answer: q.correctAnswer,
+            explanation: q.explanation,
+            difficulty: q.difficulty || 'easy',
             week: weekNum,
-            topicName: q.topicName || studyPlan.find(p => p.week === weekNum)?.topics[0].name || ''
+            topic_name: q.topicName || studyPlan.find(p => p.week === weekNum)?.topics[0].name || ''
           });
         }
+        
+        const { error } = await supabase.from('questions').insert(questionsToInsert);
+        if (error) throw error;
+        
         alert('Zadania zostały zaimportowane!');
         e.target.value = ''; // Reset input
       } catch (error) {
@@ -431,9 +459,15 @@ export default function AdminPanel() {
   };
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'features'), (snapshot) => {
-      if (snapshot.exists()) {
-        setFeatureSettings(snapshot.data());
+    const fetchSettings = async () => {
+      const { data: featuresData } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'features')
+        .single();
+
+      if (featuresData) {
+        setFeatureSettings(featuresData.data);
       } else {
         // Initial defaults
         const defaults = {
@@ -442,14 +476,18 @@ export default function AdminPanel() {
           'unit-converter': { visible: true, roles: ['user', 'parent', 'admin'] },
           'fraction-lab': { visible: true, roles: ['user', 'parent', 'admin'] }
         };
-        setDoc(doc(db, 'settings', 'features'), defaults);
+        await supabase.from('settings').insert([{ id: 'features', data: defaults }]);
         setFeatureSettings(defaults);
       }
-    });
 
-    const unsubscribeSite = onSnapshot(doc(db, 'settings', 'site'), (snapshot) => {
-      if (snapshot.exists()) {
-        setSiteConfig(snapshot.data());
+      const { data: siteData } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'site')
+        .single();
+
+      if (siteData) {
+        setSiteConfig(siteData.data);
       } else {
         const defaults = {
           landingPage: {
@@ -487,14 +525,20 @@ export default function AdminPanel() {
             }
           }
         };
-        setDoc(doc(db, 'settings', 'site'), defaults);
+        await supabase.from('settings').insert([{ id: 'site', data: defaults }]);
         setSiteConfig(defaults);
       }
-    });
+    };
+
+    fetchSettings();
+
+    const settingsSub = supabase
+      .channel('settings-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, fetchSettings)
+      .subscribe();
 
     return () => {
-      unsubscribe();
-      unsubscribeSite();
+      settingsSub.unsubscribe();
     };
   }, []);
 
@@ -509,7 +553,7 @@ export default function AdminPanel() {
       [featureId]: { ...current, roles: newRoles }
     };
     
-    await setDoc(doc(db, 'settings', 'features'), updated);
+    await supabase.from('settings').update({ data: updated }).eq('id', 'features');
   };
 
   const toggleVisibility = async (featureId: string) => {
@@ -518,7 +562,7 @@ export default function AdminPanel() {
       ...featureSettings,
       [featureId]: { ...current, visible: !current.visible }
     };
-    await setDoc(doc(db, 'settings', 'features'), updated);
+    await supabase.from('settings').update({ data: updated }).eq('id', 'features');
   };
 
   const updateSiteConfig = async (path: string, value: any) => {
@@ -529,7 +573,7 @@ export default function AdminPanel() {
       current = current[keys[i]];
     }
     current[keys[keys.length - 1]] = value;
-    await setDoc(doc(db, 'settings', 'site'), newConfig);
+    await supabase.from('settings').update({ data: newConfig }).eq('id', 'site');
   };
 
   const toggleSiteSection = async (page: 'landingPage' | 'dashboard', sectionId: string, role: string) => {
@@ -548,7 +592,7 @@ export default function AdminPanel() {
         }
       }
     };
-    await setDoc(doc(db, 'settings', 'site'), updated);
+    await supabase.from('settings').update({ data: updated }).eq('id', 'site');
   };
 
   const toggleSiteSectionVisibility = async (page: 'landingPage' | 'dashboard', sectionId: string) => {
@@ -563,7 +607,7 @@ export default function AdminPanel() {
         }
       }
     };
-    await setDoc(doc(db, 'settings', 'site'), updated);
+    await supabase.from('settings').update({ data: updated }).eq('id', 'site');
   };
 
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<number | 'all'>('all');
@@ -637,40 +681,70 @@ export default function AdminPanel() {
     if (profile?.role !== 'admin') return;
     
     setLoadingUsers(true);
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const uList = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        uid: doc.id
-      }));
-      setUsers(uList);
+    const fetchUsers = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*');
+      if (data) {
+        setUsers(data.map(u => ({ ...u, uid: u.id })));
+      }
       setLoadingUsers(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchUsers();
+
+    const subscription = supabase
+      .channel('users-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, fetchUsers)
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [profile?.role]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'questions'), (snapshot) => {
-      const qList = snapshot.docs.map(doc => ({
-        ...doc.data() as Question & { week: number },
-        docId: doc.id
-      }));
-      setQuestions(qList);
+    const fetchQuestions = async () => {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*');
+      if (data) {
+        setQuestions(data.map(q => ({ 
+          ...q, 
+          docId: q.id,
+          correctAnswer: q.correct_answer,
+          topicName: q.topic_name
+        })));
+      }
       setLoading(false);
-    });
+    };
 
-    const unsubscribeLessons = onSnapshot(collection(db, 'lessons'), (snapshot) => {
-      const lList = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        docId: doc.id
-      }));
-      setLessons(lList);
+    const fetchLessons = async () => {
+      const { data, error } = await supabase
+        .from('lessons')
+        .select('*');
+      if (data) {
+        setLessons(data.map(l => ({ ...l, docId: l.id })));
+      }
       setLoadingLessons(false);
-    });
+    };
+
+    fetchQuestions();
+    fetchLessons();
+
+    const questionsSub = supabase
+      .channel('questions-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'questions' }, fetchQuestions)
+      .subscribe();
+
+    const lessonsSub = supabase
+      .channel('lessons-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lessons' }, fetchLessons)
+      .subscribe();
 
     return () => {
-      unsubscribe();
-      unsubscribeLessons();
+      questionsSub.unsubscribe();
+      lessonsSub.unsubscribe();
     };
   }, []);
 
@@ -715,7 +789,7 @@ export default function AdminPanel() {
   const handleDelete = async (docId: string) => {
     if (window.confirm('Czy na pewno chcesz usunąć to zadanie?')) {
       try {
-        await deleteDoc(doc(db, 'questions', docId));
+        await supabase.from('questions').delete().eq('id', docId);
       } catch (error) {
         console.error("Error deleting question:", error);
       }
@@ -726,16 +800,32 @@ export default function AdminPanel() {
     if (!window.confirm('To nadpisze istniejące zadania o tych samych ID. Kontynuować?')) return;
     setIsSeeding(true);
     try {
+      const allQuestions = [];
       for (const week in revisionQuestions) {
         const weekNum = parseInt(week);
         for (const q of revisionQuestions[weekNum]) {
-          const docId = `week${weekNum}_q${q.id}`;
-          await setDoc(doc(db, 'questions', docId), {
+          allQuestions.push({
             ...q,
+            id: `week${weekNum}_q${q.id}`,
             week: weekNum
           });
         }
       }
+      
+      const { error } = await supabase.from('questions').upsert(
+        allQuestions.map(q => ({
+          id: q.id,
+          text: q.text,
+          options: q.options,
+          correct_answer: q.correctAnswer,
+          explanation: q.explanation,
+          difficulty: q.difficulty,
+          week: q.week,
+          topic_name: q.topicName || ''
+        }))
+      );
+      if (error) throw error;
+      
       alert('Zadania zostały zaimportowane do bazy danych!');
     } catch (error) {
       console.error("Error seeding questions:", error);
@@ -748,19 +838,21 @@ export default function AdminPanel() {
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const questionData = {
+        text: newQuestion.text,
+        options: newQuestion.options,
+        correct_answer: newQuestion.correctAnswer,
+        explanation: newQuestion.explanation,
+        difficulty: newQuestion.difficulty,
+        week: newQuestion.week,
+        topic_name: newQuestion.topicName || studyPlan.find(p => p.week === newQuestion.week)?.topics[0].name || ''
+      };
+
       if (editingTask) {
-        await setDoc(doc(db, 'questions', editingTask.docId), {
-          ...newQuestion,
-          id: editingTask.id,
-          topicName: newQuestion.topicName || studyPlan.find(p => p.week === newQuestion.week)?.topics[0].name || ''
-        });
+        await supabase.from('questions').update(questionData).eq('id', editingTask.docId);
         alert('Zadanie zaktualizowane!');
       } else {
-        await addDoc(collection(db, 'questions'), {
-          ...newQuestion,
-          id: Date.now(),
-          topicName: newQuestion.topicName || studyPlan.find(p => p.week === newQuestion.week)?.topics[0].name || ''
-        });
+        await supabase.from('questions').insert([{ ...questionData, id: `q_${Date.now()}` }]);
         alert('Zadanie dodane!');
       }
       setShowAddForm(false);
@@ -1113,6 +1205,14 @@ export default function AdminPanel() {
                     <Download size={20} />
                     Szablon
                   </button>
+                  <button 
+                    onClick={handleSeed}
+                    disabled={isSeeding}
+                    className="px-6 py-3 bg-amber-50 text-amber-600 border border-amber-200 rounded-2xl font-bold hover:bg-amber-100 transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Database size={20} />
+                    {isSeeding ? 'Seedowanie...' : 'Seeduj Bazę'}
+                  </button>
                 </div>
               </header>
 
@@ -1202,7 +1302,7 @@ export default function AdminPanel() {
                     <span>Zadanie</span>
                     <span>Akcje</span>
                   </div>
-                  {filteredQuestions.sort((a, b) => a.week - b.week || a.id - b.id).map((q) => (
+                  {filteredQuestions.sort((a, b) => a.week - b.week || String(a.id).localeCompare(String(b.id))).map((q) => (
                     <motion.div
                       layout
                       key={q.docId}
@@ -1243,6 +1343,25 @@ export default function AdminPanel() {
                       </div>
                       
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingTask(q);
+                            setNewQuestion({
+                              text: q.text,
+                              options: q.options,
+                              correctAnswer: q.correctAnswer,
+                              explanation: q.explanation,
+                              difficulty: q.difficulty,
+                              week: q.week,
+                              topicName: (q as any).topicName || ''
+                            });
+                            setShowAddForm(true);
+                          }}
+                          className="p-3 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-2xl transition-all"
+                          title="Podgląd zadania"
+                        >
+                          <Eye size={20} />
+                        </button>
                         <button
                           onClick={() => handleEditTask(q)}
                           className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"

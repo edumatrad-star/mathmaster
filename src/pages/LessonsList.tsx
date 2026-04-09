@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { BookOpen, ChevronRight, GraduationCap, Search, Star, Video, Target, Clock, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { db, collection, onSnapshot, query, orderBy } from '../firebase';
+import { supabase } from '../supabase';
 import { useAuth } from '../context/AuthContext';
 
 export default function LessonsList() {
@@ -13,17 +13,17 @@ export default function LessonsList() {
   
   useEffect(() => {
     if (!profile) return;
-    const q = query(collection(db, 'lessons'), orderBy('week', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const lList = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        id: doc.id
-      }));
-      setLessons(lList);
+    const fetchLessons = async () => {
+      const { data, error } = await supabase
+        .from('lessons')
+        .select('*')
+        .order('week', { ascending: true });
+      if (data) {
+        setLessons(data);
+      }
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    };
+    fetchLessons();
   }, [profile]);
 
   const filteredLessons = lessons.filter(lesson => {
@@ -31,14 +31,14 @@ export default function LessonsList() {
     if (profile?.role === 'admin') return true;
 
     // Demo lessons are visible to everyone
-    if (lesson.isDemo) return true;
+    if (lesson.is_demo) return true;
 
     // If user is not enrolled in any class, they only see demo lessons
     if (!profile?.schoolClass) return false;
 
     // If lesson has a specific class, check if user matches
-    if (lesson.schoolClass) {
-      return lesson.schoolClass.toLowerCase() === profile.schoolClass.toLowerCase();
+    if (lesson.school_class) {
+      return lesson.school_class.toLowerCase() === profile.schoolClass.toLowerCase();
     }
 
     // Standard lessons (no class assigned) are visible to all enrolled students
@@ -113,13 +113,13 @@ export default function LessonsList() {
                     <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                       <BookOpen size={24} />
                     </div>
-                    {lesson.videoUrl && (
+                    {lesson.video_url && (
                       <div className="flex items-center gap-1 text-[10px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-1 rounded-full">
                         <Video size={12} />
                         Wideo
                       </div>
                     )}
-                    {lesson.isDemo && (
+                    {lesson.is_demo && (
                       <div className="flex items-center gap-1 text-[10px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-1 rounded-full">
                         <Star size={12} />
                         Demo

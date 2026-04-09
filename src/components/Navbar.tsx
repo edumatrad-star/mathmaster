@@ -68,7 +68,7 @@ export default function Navbar() {
               <div className="flex items-center space-x-4">
                 <Link to="/profile" className="flex items-center space-x-2 px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100 hover:bg-indigo-100 transition-all">
                   <div className="w-6 h-6 rounded-full overflow-hidden">
-                    <img src={user.photoURL || ''} alt="" referrerPolicy="no-referrer" />
+                    <img src={profile?.avatar_url || user.user_metadata?.avatar_url || ''} alt="" referrerPolicy="no-referrer" />
                   </div>
                   <span className="text-xs font-bold text-indigo-700">{profile?.isPremium ? 'PREMIUM' : 'FREE'}</span>
                 </Link>

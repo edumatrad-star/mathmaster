@@ -73,7 +73,7 @@ export default function AdminDocumentation() {
     const steps = [
       { step: '1. Przygotowanie Środowiska', desc: 'Zainstaluj Node.js (v18+) oraz npm na serwerze docelowym.' },
       { step: '2. Pobranie Kodu', desc: 'Skopiuj pliki projektu lub sklonuj repozytorium git.' },
-      { step: '3. Konfiguracja Firebase', desc: 'Utwórz projekt w Firebase Console, włącz Firestore i Auth. Skopiuj konfigurację do pliku firebase-applet-config.json.' },
+      { step: '3. Konfiguracja Supabase', desc: 'Utwórz projekt w Supabase, skonfiguruj tabele i uprawnienia RLS. Skopiuj URL i klucz anonimowy do zmiennych środowiskowych.' },
       { step: '4. Zmienne Środowiskowe', desc: 'Utwórz plik .env i dodaj wymagane klucze (GEMINI_API_KEY, itp.).' },
       { step: '5. Instalacja Zależności', desc: 'Uruchom komendę "npm install" w katalogu głównym.' },
       { step: '6. Budowanie Projektu', desc: 'Uruchom "npm run build". Pliki wynikowe znajdą się w folderze /dist.' },
@@ -181,8 +181,8 @@ export default function AdminDocumentation() {
             <h3 className="text-2xl font-black">Bezpieczeństwo i Architektura</h3>
           </div>
           <p className="text-slate-400 mb-8 max-w-2xl leading-relaxed">
-            Serwis oparty jest na architekturze Serverless z wykorzystaniem Firebase (Firestore, Auth). 
-            Wszystkie dane są chronione przez rygorystyczne reguły Firestore Security Rules, zapewniając 
+            Serwis oparty jest na architekturze Serverless z wykorzystaniem Supabase (PostgreSQL, Auth). 
+            Wszystkie dane są chronione przez rygorystyczne reguły Row Level Security (RLS), zapewniając 
             izolację danych użytkowników i dostęp administracyjny tylko dla uprawnionych osób.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -191,7 +191,7 @@ export default function AdminDocumentation() {
               <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Frontend</div>
             </div>
             <div>
-              <div className="text-indigo-400 font-black text-2xl mb-1">Firebase</div>
+              <div className="text-indigo-400 font-black text-2xl mb-1">Supabase</div>
               <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Backend</div>
             </div>
             <div>

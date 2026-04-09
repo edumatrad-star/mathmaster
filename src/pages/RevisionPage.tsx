@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import Quiz from '../components/Quiz';
 import { revisionQuestions, Question } from '../data/revisionQuestions';
 import { useAuth } from '../context/AuthContext';
-import { db, doc, updateDoc, increment, collection, query, where, getDocs, writeBatch } from '../firebase';
+import { supabase } from '../supabase';
 import { getWeekTitle } from '../data/curriculum';
 
 export default function RevisionPage() {
@@ -23,14 +23,21 @@ export default function RevisionPage() {
     const fetchQuestions = async () => {
       setLoadingQuestions(true);
       try {
-        const q = query(collection(db, 'questions'), where('week', '==', weekNum));
-        const snapshot = await getDocs(q);
-        const qList = snapshot.docs.map(doc => doc.data() as Question);
-        
-        if (qList.length > 0) {
-          setQuestions(qList);
+        const { data, error } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('week', weekNum);
+          
+        if (data && data.length > 0) {
+          // Map snake_case to camelCase for the Quiz component if necessary
+          const mappedQuestions = data.map(q => ({
+            ...q,
+            correctAnswer: q.correct_answer,
+            topicName: q.topic_name
+          }));
+          setQuestions(mappedQuestions as any);
         } else {
-          // Fallback to static data if Firestore is empty for this week
+          // Fallback to static data if Supabase is empty for this week
           setQuestions(revisionQuestions[weekNum] || []);
         }
       } catch (error) {
@@ -50,17 +57,18 @@ export default function RevisionPage() {
 
     if (user) {
       try {
-        const batch = writeBatch(db);
-        const userRef = doc(db, 'users', user.uid);
-        const publicRef = doc(db, 'public_profiles', user.uid);
-        const progressRef = doc(db, 'users', user.uid, 'progress', `week_${weekNum}`);
-        
-        batch.set(progressRef, {
-          lessonId: `week_${weekNum}`,
-          score: finalScore,
-          completedAt: new Date().toISOString(),
-          details: details || []
-        }, { merge: true });
+        // Save progress
+        const { error: progressError } = await supabase
+          .from('lesson_progress')
+          .upsert({
+            user_id: user.id,
+            lesson_id: `week_${weekNum}`,
+            score: finalScore,
+            completed_at: new Date().toISOString(),
+            details: details || []
+          }, { onConflict: 'user_id,lesson_id' });
+          
+        if (progressError) throw progressError;
         
         if (finalScore === questions.length) {
           const pointsToAdd = 50;
@@ -68,17 +76,17 @@ export default function RevisionPage() {
             ? profile?.completedWeeks 
             : [...(profile?.completedWeeks || []), weekNum];
 
-          batch.update(userRef, {
-            totalPoints: increment(pointsToAdd),
-            completedWeeks: updatedCompletedWeeks
-          });
-
-          batch.update(publicRef, {
-            totalPoints: increment(pointsToAdd)
-          });
+          // Update user points and completed weeks
+          const { error: userError } = await supabase
+            .from('users')
+            .update({
+              total_points: (profile?.totalPoints || 0) + pointsToAdd,
+              completed_weeks: updatedCompletedWeeks
+            })
+            .eq('id', user.id);
+            
+          if (userError) throw userError;
         }
-
-        await batch.commit();
       } catch (error) {
         console.error("Error updating progress:", error);
       }

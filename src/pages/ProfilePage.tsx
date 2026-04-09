@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, Mail, Save, Loader2, Shield, GraduationCap, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { db, doc, setDoc } from '../firebase';
-import { updateProfile, updateEmail } from 'firebase/auth';
+import { supabase } from '../supabase';
 
 const AVATARS = [
   'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
@@ -33,10 +32,10 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user && profile) {
       setFormData({
-        displayName: user.displayName || '',
+        displayName: profile.displayName || user.email?.split('@')[0] || '',
         email: user.email || '',
         schoolClass: profile.schoolClass || '',
-        photoURL: user.photoURL || ''
+        photoURL: profile.photoURL || ''
       });
     }
   }, [user, profile]);
@@ -50,34 +49,24 @@ export default function ProfilePage() {
     setSuccess(false);
 
     try {
-      // Update Firebase Auth Profile
-      if (formData.displayName !== user.displayName || formData.photoURL !== user.photoURL) {
-        await updateProfile(user, { 
-          displayName: formData.displayName,
-          photoURL: formData.photoURL
-        });
-      }
-
-      // Update Email (Note: This might require recent login)
+      // Update Email
       if (formData.email !== user.email) {
-        try {
-          await updateEmail(user, formData.email);
-        } catch (err: any) {
-          if (err.code === 'auth/requires-recent-login') {
-            throw new Error('Zmiana adresu e-mail wymaga ponownego zalogowania ze względów bezpieczeństwa.');
-          }
-          throw err;
-        }
+        const { error: emailError } = await supabase.auth.updateUser({ email: formData.email });
+        if (emailError) throw emailError;
       }
 
-      // Update Firestore Profile
-      await setDoc(doc(db, 'users', user.uid), {
-        displayName: formData.displayName,
-        email: formData.email,
-        schoolClass: formData.schoolClass,
-        photoURL: formData.photoURL,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      // Update Supabase users table
+      const { error: dbError } = await supabase
+        .from('users')
+        .update({
+          display_name: formData.displayName,
+          school_class: formData.schoolClass,
+          photo_url: formData.photoURL,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (dbError) throw dbError;
 
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);

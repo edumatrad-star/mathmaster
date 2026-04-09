@@ -3,8 +3,9 @@ import { motion } from 'motion/react';
 import { ArrowRight, CheckCircle2, Star, Users, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MathFormula from '../components/MathFormula';
-import { db, doc, onSnapshot } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+
+import { supabase } from '../supabase';
 
 export default function LandingPage() {
   const { profile } = useAuth();
@@ -12,13 +13,19 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'site'), (snapshot) => {
-      if (snapshot.exists()) {
-        setConfig(snapshot.data().landingPage);
+    async function fetchSettings() {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'site')
+        .single();
+        
+      if (data) {
+        setConfig(data.data.landingPage);
       }
       setLoading(false);
-    });
-    return () => unsubscribe();
+    }
+    fetchSettings();
   }, []);
 
   const userRole = profile?.role || 'guest';

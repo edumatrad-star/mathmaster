@@ -3,7 +3,7 @@ import { Calendar, CheckCircle2, ChevronRight, BookOpen, Target, Clock, Star, Al
 import { useAuth } from '../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { db, doc, updateDoc, arrayUnion, arrayRemove } from '../firebase';
+import { supabase } from '../supabase';
 import { studyPlan } from '../data/curriculum';
 
 const EXAM_DATE = new Date('2026-05-13T09:00:00');
@@ -98,9 +98,14 @@ export default function StudyPlan() {
     setCompletedTopics(newCompleted);
 
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        completedStudyTopics: isCompleted ? arrayRemove(topicId) : arrayUnion(topicId)
-      });
+      const { error } = await supabase
+        .from('users')
+        .update({
+          completed_study_topics: newCompleted
+        })
+        .eq('id', user.id);
+        
+      if (error) throw error;
     } catch (error) {
       console.error("Error updating topic status:", error);
       // Rollback on error

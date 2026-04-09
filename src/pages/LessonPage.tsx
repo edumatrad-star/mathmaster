@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import MathFormula from '../components/MathFormula';
 import { useAuth } from '../context/AuthContext';
-import { db, doc, getDoc, setDoc, collection, query, orderBy, onSnapshot } from '../firebase';
+import { supabase } from '../supabase';
 import ReactMarkdown from 'react-markdown';
 
 // Lazy load heavy components
@@ -89,7 +89,7 @@ function LazyMultimedia({ children }: { children: React.ReactNode }) {
 
 export default function LessonPage() {
   const { id } = useParams();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const [mode, setMode] = useState<'content' | 'quiz'>('content');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -106,15 +106,16 @@ export default function LessonPage() {
   const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, 'lessons'), orderBy('week', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const lList = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        id: doc.id
-      }));
-      setLessons(lList);
-    });
-    return () => unsubscribe();
+    const fetchLessons = async () => {
+      const { data, error } = await supabase
+        .from('lessons')
+        .select('*')
+        .order('week', { ascending: true });
+      if (data) {
+        setLessons(data);
+      }
+    };
+    fetchLessons();
   }, []);
 
   const currentIndex = lessons.findIndex(l => l.id === id);
@@ -126,13 +127,16 @@ export default function LessonPage() {
       if (!id) return;
       setIsLoading(true);
       try {
-        const lessonDoc = await getDoc(doc(db, 'lessons', id));
-        if (lessonDoc.exists()) {
-          const data = lessonDoc.data();
+        const { data, error } = await supabase
+          .from('lessons')
+          .select('*')
+          .eq('id', id)
+          .single();
           
+        if (data) {
           // Access Control Check
-          const isDemo = data.isDemo || false;
-          const lessonClass = data.schoolClass || '';
+          const isDemo = data.is_demo || false;
+          const lessonClass = data.school_class || '';
           const userClass = profile?.schoolClass || '';
           const isAdmin = profile?.role === 'admin';
 
@@ -147,7 +151,7 @@ export default function LessonPage() {
           setLessonContent(data.content || '');
           setLessonTopic(data.topic || data.title || 'Lekcja bez tytułu');
           setLessonScope(data.scope || []);
-          setLessonVideoUrl(data.videoUrl || '');
+          setLessonVideoUrl(data.video_url || '');
           setLessonWeek(data.week || 1);
           setLessonIsDemo(isDemo);
           setLessonSchoolClass(lessonClass);
@@ -164,7 +168,7 @@ export default function LessonPage() {
     };
 
     fetchLesson();
-  }, [id]);
+  }, [id, profile]);
 
   const handleQuizComplete = async (score: number, details?: { questionId: number, isCorrect: boolean }[]) => {
     console.log("Quiz completed with score:", score, "details:", details);
@@ -172,13 +176,16 @@ export default function LessonPage() {
     
     if (user && id) {
       try {
-        const progressRef = doc(db, 'users', user.uid, 'progress', id);
-        await setDoc(progressRef, {
-          lessonId: id,
-          score,
-          completedAt: new Date().toISOString(),
-          details: details || []
-        }, { merge: true });
+        const { error } = await supabase
+          .from('lesson_progress')
+          .upsert({
+            user_id: user.id,
+            lesson_id: id,
+            score,
+            completed_at: new Date().toISOString(),
+            details: details || []
+          }, { onConflict: 'user_id,lesson_id' });
+        if (error) throw error;
         console.log("Progress saved successfully");
       } catch (error) {
         console.error("Error saving progress:", error);
@@ -190,15 +197,18 @@ export default function LessonPage() {
     if (!id) return;
     setIsSaving(true);
     try {
-      await setDoc(doc(db, 'lessons', id), {
-        id,
-        topic: lessonTopic,
-        content: lessonContent,
-        scope: lessonScope,
-        videoUrl: lessonVideoUrl,
-        week: lessonWeek,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      const { error } = await supabase
+        .from('lessons')
+        .update({
+          topic: lessonTopic,
+          content: lessonContent,
+          scope: lessonScope,
+          video_url: lessonVideoUrl,
+          week: lessonWeek,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
       setIsEditing(false);
     } catch (error) {
       console.error("Error saving lesson:", error);

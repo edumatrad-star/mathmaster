@@ -114,7 +114,7 @@ export default function RegisterPage() {
       } else if (err.code === 'auth/weak-password') {
         setError('Hasło jest zbyt słabe');
       } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Rejestracja e-mail jest obecnie wyłączona w konsoli Firebase. Włącz ją w sekcji Authentication > Sign-in method.');
+        setError('Rejestracja e-mail jest obecnie wyłączona w konsoli Supabase. Włącz ją w sekcji Authentication > Providers.');
       } else {
         setError('Wystąpił błąd podczas rejestracji: ' + (err.message || 'Nieznany błąd'));
       }

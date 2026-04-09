@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AppWindow, Calculator, Percent, Ruler, Triangle, FunctionSquare, Sigma, Binary, Pizza, Scale, Maximize2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { db, doc, onSnapshot } from '../firebase';
+import { supabase } from '../supabase';
 import { useAuth } from '../context/AuthContext';
 
 const allApps = [
@@ -82,12 +82,18 @@ export default function Applications() {
   const [featureSettings, setFeatureSettings] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'features'), (snapshot) => {
-      if (snapshot.exists()) {
-        setFeatureSettings(snapshot.data());
+    async function fetchSettings() {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'features')
+        .single();
+        
+      if (data) {
+        setFeatureSettings(data.data);
       }
-    });
-    return () => unsubscribe();
+    }
+    fetchSettings();
   }, []);
 
   const visibleApps = allApps.filter(app => {

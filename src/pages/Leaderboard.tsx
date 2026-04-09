@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Trophy, Medal, Crown, User, ArrowUp, ArrowDown, Minus } from 'lucide-react';
-import { db, collection, query, orderBy, limit, onSnapshot } from '../firebase';
+import { supabase } from '../supabase';
 import { useAuth } from '../context/AuthContext';
 
 interface LeaderboardUser {
@@ -19,22 +19,28 @@ export default function Leaderboard() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'public_profiles'),
-      orderBy('totalPoints', 'desc'),
-      limit(20)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({
-        uid: doc.id,
-        ...doc.data()
-      })) as LeaderboardUser[];
-      setUsers(usersData);
+    
+    const fetchLeaderboard = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, display_name, photo_url, total_points, streak')
+        .order('total_points', { ascending: false })
+        .limit(20);
+        
+      if (data) {
+        const mappedUsers = data.map(u => ({
+          uid: u.id,
+          displayName: u.display_name || 'Anonim',
+          photoURL: u.photo_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.id}`,
+          totalPoints: u.total_points || 0,
+          streak: u.streak || 0
+        }));
+        setUsers(mappedUsers);
+      }
       setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchLeaderboard();
   }, [user]);
 
   if (loading) return (

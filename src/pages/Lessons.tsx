@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BookOpen, ChevronRight, Play, CheckCircle2, ArrowLeft, Clock, Target, RefreshCw } from 'lucide-react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { db, collection, onSnapshot, query, orderBy } from '../firebase';
+import { supabase } from '../supabase';
 import MathFormula from '../components/MathFormula';
 import ReactMarkdown from 'react-markdown';
 
@@ -14,24 +14,23 @@ export default function Lessons() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'lessons'), orderBy('week', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const lList = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        id: doc.id
-      }));
-      setLessons(lList);
-      
-      if (lessonId) {
-        const found = lList.find(l => l.id === lessonId);
-        if (found) setSelectedLesson(found);
-      } else if (lList.length > 0 && !selectedLesson) {
-        setSelectedLesson(lList[0]);
+    const fetchLessons = async () => {
+      const { data, error } = await supabase
+        .from('lessons')
+        .select('*')
+        .order('week', { ascending: true });
+      if (data) {
+        setLessons(data);
+        if (lessonId) {
+          const found = data.find(l => l.id === lessonId);
+          if (found) setSelectedLesson(found);
+        } else if (data.length > 0 && !selectedLesson) {
+          setSelectedLesson(data[0]);
+        }
       }
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    };
+    fetchLessons();
   }, [lessonId]);
 
   const handleLessonSelect = (lesson: any) => {
@@ -157,10 +156,10 @@ export default function Lessons() {
                         ))}
                       </ul>
                     </div>
-                    {currentLesson.videoUrl && (
+                    {currentLesson.video_url && (
                       <div className="bg-slate-900 rounded-3xl overflow-hidden relative group cursor-pointer aspect-video flex items-center justify-center">
                         <img 
-                          src={`https://img.youtube.com/vi/${currentLesson.videoUrl}/maxresdefault.jpg`} 
+                          src={`https://img.youtube.com/vi/${currentLesson.video_url}/maxresdefault.jpg`} 
                           alt="Video thumbnail"
                           className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform"
                         />
