@@ -13,7 +13,7 @@ import { studyPlan, getWeekTitle } from '../data/curriculum';
 import MathFormula from '../components/MathFormula';
 
 export default function AdminPanel() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, isMockMode } = useAuth();
   const [questions, setQuestions] = useState<(Question & { week: number, docId: string })[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -459,6 +459,23 @@ export default function AdminPanel() {
   };
 
   useEffect(() => {
+    if (isMockMode) {
+      setFeatureSettings({
+        'formula-transformer': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'graph-generator': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'unit-converter': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'fraction-lab': { visible: true, roles: ['user', 'parent', 'admin'] }
+      });
+      setSiteConfig({
+        landingPage: {
+          hero: { title: "Demo Mode", subtitle: "Baza danych nie jest skonfigurowana.", badge: "Podgląd", ctaPrimary: "Zacznij", ctaSecondary: "Demo" },
+          features: [],
+          stats: [],
+          sections: {}
+        }
+      });
+      return;
+    }
     const fetchSettings = async () => {
       const { data: featuresData } = await supabase
         .from('settings')
@@ -679,6 +696,11 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (profile?.role !== 'admin') return;
+    if (isMockMode) {
+      setUsers([{ id: 'mock-1', email: 'student@demo.pl', displayName: 'Przykładowy Uczeń', role: 'student' }]);
+      setLoadingUsers(false);
+      return;
+    }
     
     setLoadingUsers(true);
     const fetchUsers = async () => {
@@ -704,6 +726,19 @@ export default function AdminPanel() {
   }, [profile?.role]);
 
   useEffect(() => {
+    if (isMockMode) {
+      const mockQuestions: any[] = [];
+      Object.entries(revisionQuestions).forEach(([week, qs]) => {
+        qs.forEach(q => {
+          mockQuestions.push({ ...q, week: parseInt(week), docId: `mock-${q.id}`, topicName: 'Demo Topic' });
+        });
+      });
+      setQuestions(mockQuestions);
+      setLessons([{ id: 'mock-l1', week: 1, topic: 'Demo Lesson', docId: 'mock-l1' }]);
+      setLoading(false);
+      setLoadingLessons(false);
+      return;
+    }
     const fetchQuestions = async () => {
       const { data, error } = await supabase
         .from('questions')
@@ -787,6 +822,11 @@ export default function AdminPanel() {
   }, [profile?.role]);
 
   const handleDelete = async (docId: string) => {
+    if (isMockMode) {
+      alert('Tryb Demo: Zmiany nie zostaną zapisane w bazie danych.');
+      setQuestions(prev => prev.filter(q => q.docId !== docId));
+      return;
+    }
     if (window.confirm('Czy na pewno chcesz usunąć to zadanie?')) {
       try {
         await supabase.from('questions').delete().eq('id', docId);
@@ -797,6 +837,10 @@ export default function AdminPanel() {
   };
 
   const handleSeed = async () => {
+    if (isMockMode) {
+      alert('Tryb Demo: Nie można seedować bazy danych bez połączenia.');
+      return;
+    }
     if (!window.confirm('To nadpisze istniejące zadania o tych samych ID. Kontynuować?')) return;
     setIsSeeding(true);
     try {
@@ -837,6 +881,19 @@ export default function AdminPanel() {
 
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMockMode) {
+      alert('Tryb Demo: Zadanie zostało dodane lokalnie (nie zostanie zapisane w bazie).');
+      const mockQ = {
+        ...newQuestion,
+        id: Date.now(),
+        docId: `mock-${Date.now()}`,
+        correctAnswer: newQuestion.correctAnswer,
+        topicName: newQuestion.topicName
+      };
+      setQuestions(prev => [...prev, mockQ as any]);
+      setShowAddForm(false);
+      return;
+    }
     try {
       const questionData = {
         text: newQuestion.text,
@@ -981,6 +1038,23 @@ export default function AdminPanel() {
 
         {/* Main Content */}
         <main className="flex-1 min-w-0">
+          {isMockMode && (
+            <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 text-amber-700">
+                <AlertCircle size={24} />
+                <div>
+                  <div className="font-black uppercase tracking-widest text-[10px]">Tryb Demo Aktywny</div>
+                  <p className="text-sm font-medium">Baza danych nie jest skonfigurowana. Zmiany nie zostaną zapisane.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-700 transition-all"
+              >
+                Odśwież
+              </button>
+            </div>
+          )}
           {activeTab === 'dashboard' && (
             <div className="space-y-8">
               <header>

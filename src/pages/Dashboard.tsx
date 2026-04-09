@@ -28,7 +28,7 @@ const studyTimeData = [
 ];
 
 export default function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, isMockMode } = useAuth();
   const [config, setConfig] = useState<any>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [totalSeconds, setTotalSeconds] = useState(() => {
@@ -37,6 +37,19 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
+    if (isMockMode) {
+      setConfig({
+        sections: {
+          welcome: { visible: true, roles: ['user', 'parent', 'admin'] },
+          stats: { visible: true, roles: ['user', 'parent', 'admin'] },
+          lessons: { visible: true, roles: ['user', 'admin'] },
+          parentTools: { visible: true, roles: ['parent', 'admin'] },
+          leaderboard: { visible: true, roles: ['user', 'parent', 'admin'] }
+        }
+      });
+      setLoadingConfig(false);
+      return;
+    }
     async function fetchSettings() {
       const { data, error } = await supabase
         .from('settings')
@@ -85,6 +98,17 @@ export default function Dashboard() {
 
   return (
     <div className="pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      {isMockMode && (
+        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-amber-700">
+            <CheckCircle size={24} />
+            <div>
+              <div className="font-black uppercase tracking-widest text-[10px]">Tryb Demo Aktywny</div>
+              <p className="text-sm font-medium">Baza danych nie jest skonfigurowana. Twoje postępy nie zostaną zapisane.</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-8">

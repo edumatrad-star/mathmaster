@@ -31,6 +31,10 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -137,6 +141,18 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold text-slate-900">Dołącz do MathMaster</h1>
           <p className="text-slate-500 mt-2">Stwórz konto rodzica i zacznijcie naukę</p>
         </div>
+
+        {!isSupabaseConfigured && (
+          <div className="p-4 mb-6 bg-amber-50 border border-amber-200 rounded-2xl text-amber-700 text-sm">
+            <div className="flex items-center gap-2 font-black uppercase tracking-wider text-[10px] mb-2">
+              <AlertCircle size={14} />
+              Brak Konfiguracji Bazy Danych
+            </div>
+            <p className="font-medium leading-relaxed">
+              Rejestracja wymaga połączenia z Supabase. Skonfiguruj klucze w menu <b>Settings</b>.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="p-3 mb-4 bg-rose-50 text-rose-500 rounded-xl text-xs font-bold flex items-center gap-2">

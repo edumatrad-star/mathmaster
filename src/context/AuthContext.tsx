@@ -14,6 +14,8 @@ interface AuthContextType {
   loginAsAdmin: (password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   profile: any | null;
+  isMockMode: boolean;
+  enableMockMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,6 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isMockMode, setIsMockMode] = useState(false);
 
   useEffect(() => {
     // Check active sessions and sets the user
@@ -222,11 +225,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    if (isMockMode) {
+      setIsMockMode(false);
+      setUser(null);
+      setProfile(null);
+      return;
+    }
     try {
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Logout failed", error);
     }
+  };
+
+  const enableMockMode = () => {
+    setIsMockMode(true);
+    setUser({ id: 'mock-admin', email: 'admin@demo.pl' } as any);
+    setProfile({
+      id: 'mock-admin',
+      display_name: 'Demo Admin',
+      role: 'admin',
+      total_points: 999
+    });
   };
 
   const loginAsAdmin = async (password: string) => {
@@ -276,7 +296,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       addChild,
       loginAsAdmin, 
       logout, 
-      profile 
+      profile,
+      isMockMode,
+      enableMockMode
     }}>
       {children}
     </AuthContext.Provider>
