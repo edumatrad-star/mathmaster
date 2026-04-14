@@ -89,7 +89,7 @@ function LazyMultimedia({ children }: { children: React.ReactNode }) {
 
 export default function LessonPage() {
   const { id } = useParams();
-  const { user, profile } = useAuth();
+  const { user, profile, isMockMode } = useAuth();
   const [mode, setMode] = useState<'content' | 'quiz'>('content');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -106,6 +106,10 @@ export default function LessonPage() {
   const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
+    if (isMockMode) {
+      setLessons([{ id: 'mock-1', week: 1, topic: 'Wstęp do ułamków', is_demo: true, scope: ['Ułamki zwykłe'], content: 'Demo content' }]);
+      return;
+    }
     const fetchLessons = async () => {
       const { data, error } = await supabase
         .from('lessons')
@@ -123,6 +127,14 @@ export default function LessonPage() {
   const nextLesson = currentIndex < lessons.length - 1 ? lessons[currentIndex + 1] : null;
 
   useEffect(() => {
+    if (isMockMode) {
+      setLessonTopic('Wstęp do ułamków');
+      setLessonContent('To jest lekcja demonstracyjna w Trybie Demo. Baza danych nie jest połączona.');
+      setLessonScope(['Ułamki zwykłe']);
+      setLessonIsDemo(true);
+      setIsLoading(false);
+      return;
+    }
     const fetchLesson = async () => {
       if (!id) return;
       setIsLoading(true);
@@ -174,6 +186,8 @@ export default function LessonPage() {
     console.log("Quiz completed with score:", score, "details:", details);
     setCompleted(true);
     
+    if (isMockMode) return;
+
     if (user && id) {
       try {
         const { error } = await supabase
@@ -195,6 +209,11 @@ export default function LessonPage() {
 
   const handleSave = async () => {
     if (!id) return;
+    if (isMockMode) {
+      alert("Tryb Demo: Zmiany nie zostaną zapisane.");
+      setIsEditing(false);
+      return;
+    }
     setIsSaving(true);
     try {
       const { error } = await supabase

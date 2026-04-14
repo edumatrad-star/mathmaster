@@ -6,13 +6,18 @@ import { supabase } from '../supabase';
 import { useAuth } from '../context/AuthContext';
 
 export default function LessonsList() {
-  const { profile } = useAuth();
+  const { profile, isMockMode } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [lessons, setLessons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
     if (!profile) return;
+    if (isMockMode) {
+      setLessons([{ id: 'mock-1', week: 1, topic: 'Wstęp do ułamków', is_demo: true, scope: ['Ułamki zwykłe'] }]);
+      setLoading(false);
+      return;
+    }
     const fetchLessons = async () => {
       const { data, error } = await supabase
         .from('lessons')

@@ -8,7 +8,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
 export default function ParentDashboard() {
-  const { user, profile, addChild, checkUsernameAvailability } = useAuth();
+  const { user, profile, addChild, checkUsernameAvailability, isMockMode } = useAuth();
   const [childrenData, setChildrenData] = useState<any[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +61,12 @@ export default function ParentDashboard() {
   }, [newChildUsername, checkUsernameAvailability]);
 
   useEffect(() => {
+    if (isMockMode) {
+      setChildrenData([{ id: 'mock-child-1', display_name: 'Adam (Demo)', total_points: 450, streak: 3 }]);
+      setSelectedChildId('mock-child-1');
+      setLoading(false);
+      return;
+    }
     async function fetchChildrenData() {
       if (profile?.role === 'parent' && profile?.children_uids?.length > 0) {
         const { data, error } = await supabase
@@ -103,6 +109,10 @@ export default function ParentDashboard() {
 
   const handleSaveSettings = async () => {
     if (!user) return;
+    if (isMockMode) {
+      alert('Tryb Demo: Ustawienia nie zostaną zapisane.');
+      return;
+    }
     setSavingSettings(true);
     try {
       const { error } = await supabase
@@ -131,6 +141,12 @@ export default function ParentDashboard() {
       return;
     }
     
+    if (isMockMode) {
+      alert('Tryb Demo: Hasło nie zostanie zmienione.');
+      setChildNewPassword('');
+      return;
+    }
+
     setIsChangingPassword(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();

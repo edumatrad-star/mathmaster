@@ -16,7 +16,7 @@ const AVATARS = [
 ];
 
 export default function ProfilePage() {
-  const { user, profile } = useAuth();
+  const { user, profile, isMockMode } = useAuth();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +43,10 @@ export default function ProfilePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (isMockMode) {
+      alert("Tryb Demo: Zmiany nie zostaną zapisane.");
+      return;
+    }
 
     setLoading(true);
     setError(null);

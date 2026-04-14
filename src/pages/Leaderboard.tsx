@@ -13,12 +13,21 @@ interface LeaderboardUser {
 }
 
 export default function Leaderboard() {
-  const { user } = useAuth();
+  const { user, isMockMode } = useAuth();
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
+    if (isMockMode) {
+      setUsers([
+        { uid: 'mock-1', displayName: 'Jan Kowalski', photoURL: '', totalPoints: 1200, streak: 5 },
+        { uid: 'mock-2', displayName: 'Anna Nowak', photoURL: '', totalPoints: 1100, streak: 3 },
+        { uid: 'mock-admin', displayName: 'Demo Admin', photoURL: '', totalPoints: 999, streak: 1 },
+      ]);
+      setLoading(false);
+      return;
+    }
     
     const fetchLeaderboard = async () => {
       const { data, error } = await supabase

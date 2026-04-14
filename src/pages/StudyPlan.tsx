@@ -78,7 +78,7 @@ function CountdownTimer() {
 }
 
 export default function StudyPlan() {
-  const { user, profile } = useAuth();
+  const { user, profile, isMockMode } = useAuth();
   const [completedTopics, setCompletedTopics] = useState<string[]>([]);
 
   useEffect(() => {
@@ -96,6 +96,8 @@ export default function StudyPlan() {
       : [...completedTopics, topicId];
     
     setCompletedTopics(newCompleted);
+
+    if (isMockMode) return;
 
     try {
       const { error } = await supabase

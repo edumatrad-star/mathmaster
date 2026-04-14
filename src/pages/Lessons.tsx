@@ -4,9 +4,11 @@ import { BookOpen, ChevronRight, Play, CheckCircle2, ArrowLeft, Clock, Target, R
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import MathFormula from '../components/MathFormula';
+import { useAuth } from '../context/AuthContext';
 import ReactMarkdown from 'react-markdown';
 
 export default function Lessons() {
+  const { isMockMode } = useAuth();
   const { lessonId } = useParams();
   const navigate = useNavigate();
   const [lessons, setLessons] = useState<any[]>([]);
@@ -14,6 +16,18 @@ export default function Lessons() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isMockMode) {
+      const mockLessons = [{ id: 'mock-1', week: 1, topic: 'Wstęp do ułamków', is_demo: true, scope: ['Ułamki zwykłe'], content: 'Demo content' }];
+      setLessons(mockLessons);
+      if (lessonId) {
+        const found = mockLessons.find(l => l.id === lessonId);
+        if (found) setSelectedLesson(found);
+      } else if (!selectedLesson) {
+        setSelectedLesson(mockLessons[0]);
+      }
+      setLoading(false);
+      return;
+    }
     const fetchLessons = async () => {
       const { data, error } = await supabase
         .from('lessons')

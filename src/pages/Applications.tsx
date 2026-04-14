@@ -78,10 +78,20 @@ const allApps = [
 ];
 
 export default function Applications() {
-  const { profile } = useAuth();
+  const { profile, isMockMode } = useAuth();
   const [featureSettings, setFeatureSettings] = useState<any>(null);
 
   useEffect(() => {
+    if (isMockMode) {
+      setFeatureSettings({
+        'formula-transformer': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'graph-generator': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'unit-converter': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'fraction-lab': { visible: true, roles: ['user', 'parent', 'admin'] },
+        'analytical-geometry': { visible: true, roles: ['user', 'parent', 'admin'] }
+      });
+      return;
+    }
     async function fetchSettings() {
       const { data, error } = await supabase
         .from('settings')

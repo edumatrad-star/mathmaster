@@ -14,16 +14,29 @@ export default function LandingPage() {
 
   useEffect(() => {
     async function fetchSettings() {
-      const { data, error } = await supabase
-        .from('settings')
-        .select('*')
-        .eq('id', 'site')
-        .single();
-        
-      if (data) {
-        setConfig(data.data.landingPage);
+      try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseAnonKey) {
+          console.warn("Supabase not configured, using default landing page config.");
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('settings')
+          .select('*')
+          .eq('id', 'site')
+          .single();
+          
+        if (data) {
+          setConfig(data.data.landingPage);
+        }
+      } catch (err) {
+        console.error("Error fetching landing page settings:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     fetchSettings();
   }, []);

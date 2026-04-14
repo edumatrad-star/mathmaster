@@ -11,7 +11,7 @@ import { getWeekTitle } from '../data/curriculum';
 export default function RevisionPage() {
   const { week } = useParams();
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, isMockMode } = useAuth();
   const [isCompleted, setIsCompleted] = useState(false);
   const [score, setScore] = useState(0);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -20,6 +20,11 @@ export default function RevisionPage() {
   const weekNum = parseInt(week || '1');
 
   useEffect(() => {
+    if (isMockMode) {
+      setQuestions(revisionQuestions[weekNum] || []);
+      setLoadingQuestions(false);
+      return;
+    }
     const fetchQuestions = async () => {
       setLoadingQuestions(true);
       try {
@@ -54,6 +59,8 @@ export default function RevisionPage() {
   const handleQuizComplete = async (finalScore: number, details?: { questionId: number, isCorrect: boolean }[]) => {
     setScore(finalScore);
     setIsCompleted(true);
+
+    if (isMockMode) return;
 
     if (user) {
       try {

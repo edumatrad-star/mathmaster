@@ -27,28 +27,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isMockMode, setIsMockMode] = useState(false);
 
   useEffect(() => {
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
-    // Listen for changes on auth state (logged in, signed out, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
+    if (!isSupabaseConfigured) {
+      console.warn("Supabase is not configured. Skipping auth initialization.");
+      setLoading(false);
+      return;
+    }
 
-    return () => subscription.unsubscribe();
+    try {
+      // Check active sessions and sets the user
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchProfile(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      }).catch(err => {
+        console.error("Error getting session:", err);
+        setLoading(false);
+      });
+
+      // Listen for changes on auth state (logged in, signed out, etc.)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchProfile(session.user.id);
+        } else {
+          setProfile(null);
+          setLoading(false);
+        }
+      });
+
+      return () => subscription.unsubscribe();
+    } catch (err) {
+      console.error("Supabase auth initialization failed:", err);
+      setLoading(false);
+    }
   }, []);
 
   const fetchProfile = async (userId: string) => {
