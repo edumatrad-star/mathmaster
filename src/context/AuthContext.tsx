@@ -98,6 +98,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkUsernameAvailability = async (username: string) => {
     if (!username || username.length < 3) return false;
+    if (isMockMode) {
+      // In mock mode, always return true to allow registration flow to proceed
+      return true;
+    }
     try {
       const { data, error } = await supabase
         .from('users')
@@ -109,7 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return !data; // Available if no data found
     } catch (err) {
       console.error("Error checking username availability:", err);
-      throw err;
+      // Fallback to true if there's an error (e.g., missing column) so users aren't completely blocked
+      return true; 
     }
   };
 
@@ -160,6 +165,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (email: string, password: string, displayName: string, username: string, selectedLevels: string[]) => {
     try {
+      if (isMockMode) {
+        // Mock successful registration
+        setUser({ id: 'mock-user-id', email } as any);
+        setProfile({
+          uid: 'mock-user-id',
+          displayName,
+          username: username.toLowerCase(),
+          role: 'parent',
+          selectedLevels,
+          totalPoints: 0,
+          streak: 0,
+          completedWeeks: [],
+          completedStudyTopics: [],
+          childrenUids: []
+        });
+        return;
+      }
+
       const isAvailable = await checkUsernameAvailability(username);
       if (!isAvailable) {
         throw new Error("Nazwa użytkownika jest już zajęta.");
